@@ -1,15 +1,23 @@
 const express = require("express");
+// --- ここからPrisma v7用のインポートを追加 ---
+const { Pool } = require("pg");
+const { PrismaPg } = require("@prisma/adapter-pg");
 const { PrismaClient } = require("@prisma/client");
 
 const app = express();
-const prisma = new PrismaClient();
+
+// PostgreSQLの接続プールを作成し、Prismaのアダプターに渡す
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const adapter = new PrismaPg(pool);
+
+// アダプターを指定してPrismaインスタンスを作成
+const prisma = new PrismaClient({ adapter });
+// --- ここまで ---
 
 app.use(express.json());
-
-// ★ポイント：publicフォルダーの中身を静的ファイルとして公開する設定
-// これにより、http://localhost:3000 にアクセスすると index.html が表示されます
 app.use(express.static("public"));
 
+// ...（これ以降のAPIルーティングやサーバー起動コードは変更なし）
 /**
  * 1. タスク一覧取得 API (GET /tasks)
  */
