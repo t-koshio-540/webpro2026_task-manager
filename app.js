@@ -1,16 +1,25 @@
 const express = require("express");
-// --- ここからPrisma v7用のインポートを追加 ---
+// --- ここから修正：parse関数をインポートに追加 ---
 const { Pool } = require("pg");
+const { parse } = require("pg-connection-string"); // ★これを追加
 const { PrismaPg } = require("@prisma/adapter-pg");
 const { PrismaClient } = require("@prisma/client");
 
+require("dotenv").config();
+
 const app = express();
 
-// PostgreSQLの接続プールを作成し、Prismaのアダプターに渡す
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-const adapter = new PrismaPg(pool);
+// DATABASE_URL を pg が解釈できるオブジェクト形式に安全に変換する
+const connectionOptions = parse(process.env.DATABASE_URL || "");
 
-// アダプターを指定してPrismaインスタンスを作成
+// パスワードを確実に「文字列」にするための安全弁を通す
+if (connectionOptions.password) {
+  connectionOptions.password = String(connectionOptions.password);
+}
+
+// 綺麗にパースされた設定オブジェクトを渡してPoolを作成
+const pool = new Pool(connectionOptions);
+const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 // --- ここまで ---
 
