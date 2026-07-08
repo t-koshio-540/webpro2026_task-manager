@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <title>タスク管理アプリ</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        margin: 30px;
+      }
+      .section {
+        margin-bottom: 30px;
+        padding: 15px;
+        border: 1px solid #ccc;
+      }
+      .task-item {
+        padding: 10px;
+        border-bottom: 1px solid #eee;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>タスク管理（最低限バージョン）</h1>
+
+    <div class="section">
+      <h2>新規タスク登録</h2>
+      <form id="taskForm">
+        <label>タイトル: <input type="text" id="title" required /></label
+        ><br /><br />
+        <label
+          >優先度:
+          <select id="priority">
+            <option value="3">3 (高)</option>
+            <option value="2">2 (中)</option>
+            <option value="1">1 (低)</option>
+          </select> </label
+        ><br /><br />
+        <label
+          >カテゴリー:
+          <select id="categoryId">
+            <option value="1">仕事 (ID: 1)</option>
+            <option value="2">プライベート (ID: 2)</option>
+          </select> </label
+        ><br /><br />
+        <button type="submit">タスクを追加</button>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2>表示設定</h2>
+      <label
+        >カテゴリー絞り込み:
+        <select id="filterCategory">
+          <option value="">すべて</option>
+          <option value="1">仕事</option>
+          <option value="2">プライベート</option>
+        </select>
+      </label>
+
+      <label style="margin-left: 20px"
+        >優先度ソート:
+        <select id="sortOrder">
+          <option value="desc">高い順</option>
+          <option value="asc">低い順</option>
+        </select>
+      </label>
+
+      <button id="fetchBtn" style="margin-left: 10px">
+        条件を適用して更新
+      </button>
+    </div>
+
+    <div class="section">
+      <h2>タスク一覧</h2>
+      <div id="taskList"></div>
+    </div>
+
+    <script>
+      // ページが読み込まれたら、まず一度タスク一覧を取得して表示する
+      document.addEventListener("DOMContentLoaded", fetchTasks);
+
+      // 「条件を適用して更新」ボタンを押したときの処理
+      document.getElementById("fetchBtn").addEventListener("click", fetchTasks);
+
+      // フォームが送信された（タスクを追加する）ときの処理
+      document
+        .getElementById("taskForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault(); // ページのリロードを防ぐ
+
+          const title = document.getElementById("title").value;
+          const priority = document.getElementById("priority").value;
+          const categoryId = document.getElementById("categoryId").value;
+
+          // POSTリクエストでバックエンドにデータを送信
+          const response = await fetch("/tasks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, priority, categoryId }),
+          });
+
+          if (response.ok) {
+            document.getElementById("title").value = ""; // 入力欄をクリア
+            fetchTasks(); // 一覧を再読み込み
+          } else {
+            alert("タスクの追加に失敗しました。");
+          }
+        });
+
+      // タスク一覧をAPIから取得して画面に描画する関数
+      async function fetchTasks() {
+        const categoryId = document.getElementById("filterCategory").value;
+        const order = document.getElementById("sortOrder").value;
+
+        // クエリパラメータを組み立てる (例: /tasks?categoryId=1&order=desc)
+        let url = `/tasks?order=${order}`;
+        if (categoryId) {
+          url += `&categoryId=${categoryId}`;
+        }
+
+        const response = await fetch(url);
+        const tasks = await response.json();
+
+        const taskListDiv = document.getElementById("taskList");
+        taskListDiv.innerHTML = ""; // 一度表示をリセット
+
+        if (tasks.length === 0) {
+          taskListDiv.innerHTML = "<p>該当するタスクはありません。</p>";
+          return;
+        }
+
+        // 取得したデータをループしてHTMLを生成
+        tasks.forEach((task) => {
+          const item = document.createElement("div");
+          item.className = "task-item";
+          item.innerHTML = `
+                    <strong>【${task.category ? task.category.name : "なし"}】</strong> 
+                    ${task.title} 
+                    (優先度: ${task.priority})
+                `;
+          taskListDiv.appendChild(item);
+        });
+      }
+    </script>
+  </body>
+</html>
