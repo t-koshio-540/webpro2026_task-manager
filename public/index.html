@@ -14,9 +14,9 @@
     <main class="container">
       <!-- 1. すべての未完了タスクエリア -->
       <section class="panel">
-        <h2>🚨 すべての未完了タスク</h2>
+        <h2>未完了タスク</h2>
         <p class="instruction">
-          💡 表のヘッダーをクリックすると、その列で昇順・降順ソートが可能です。
+          表のヘッダーをクリックすると、その列で昇順・降順ソートが可能です。
         </p>
         <div class="table-wrapper">
           <table id="incomplete-tasks-table">
@@ -41,7 +41,7 @@
       <div class="form-grid">
         <!-- タスク登録フォーム -->
         <section class="panel form-panel">
-          <h2>➕ タスク登録フォーム</h2>
+          <h2>タスク登録フォーム</h2>
           <form id="task-form">
             <div class="form-group">
               <label for="task-title"
@@ -78,8 +78,8 @@
                   >重要度 <span class="required">*</span></label
                 >
                 <select id="task-priority" required>
-                  <option value="1">1 (低)</option>
-                  <option value="2">2 (やや低)</option>
+                  <option value="1">1 (仮)</option>
+                  <option value="2">2 (低)</option>
                   <option value="3" selected>3 (中)</option>
                   <option value="4">4 (高)</option>
                   <option value="5">5 (緊急)</option>
@@ -102,7 +102,7 @@
 
         <!-- ジャンル改廃（管理）パーツ -->
         <section class="panel genre-panel">
-          <h2>⚙️ ジャンル管理（追加・削除）</h2>
+          <h2>ジャンル管理（追加・削除）</h2>
 
           <!-- 新規ジャンルの追加フォーム -->
           <form id="genre-form" class="inline-form">
@@ -134,7 +134,7 @@
           </button>
         </div>
         <p class="instruction">
-          「ビューを追加」を押すと、選択した特定のジャンルだけを抽出表示するテーブルを何個でも追加配置できます。
+          ※「ビューを追加」を押すと、選択した特定のジャンルだけを抽出表示するテーブルを何個でも追加配置できます。
         </p>
 
         <!-- ジャンル別の表示エリアが追加されるコンテナ -->
