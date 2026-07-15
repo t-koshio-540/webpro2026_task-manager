@@ -3,21 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>高度なタスク管理システム</title>
+    <title>タスク管理システム</title>
     <link rel="stylesheet" href="style.css" />
   </head>
   <body>
     <header>
-      <h1>📋 タスク管理システム</h1>
+      <h1>タスク管理システム</h1>
     </header>
 
     <main class="container">
       <!-- 1. すべての未完了タスクエリア -->
       <section class="panel">
-        <h2>🚨 すべての未完了タスク</h2>
+        <h2>すべての未完了タスク</h2>
         <p class="instruction">
-          💡
-          表のヘッダーをクリックすると、その列（残り時間含む）でソートが可能です。
+          ※表のヘッダーをクリックすると、その列でソートが可能です。
         </p>
         <div class="table-wrapper">
           <table id="incomplete-tasks-table">
@@ -39,23 +38,24 @@
         </div>
       </section>
 
-      <!-- 【追加】新設：統計区画（可視化パーツ） -->
+      <!-- 新設：統計区画（可視化パーツ） -->
       <section class="panel statistics-panel">
-        <h2>📊 タスク分析（リアルタイム統計）</h2>
+        <h2>タスク分析（リアルタイム統計）</h2>
         <div class="stats-grid">
           <div class="stats-card">
-            <h3>📈 負荷推移タイムライン（前日〜1週間・6時間ごと）</h3>
+            <h3>負荷推移タイムライン（前日〜1週間後・6時間ごと）</h3>
             <p class="instruction">
               縦軸：時間枠内にあるタスクの【重要度の合計値】（ジャンルカラーで積み上げ表示）
+              横軸：時間（6時間ごと）
             </p>
             <div class="canvas-container">
               <canvas id="timeline-chart"></canvas>
             </div>
           </div>
           <div class="stats-card">
-            <h3>🍰 本日の未完了タスク・ジャンル割合</h3>
+            <h3>本日の未完了タスク・ジャンル割合</h3>
             <p class="instruction">
-              今日期限のタスクの内訳（ジャンル別カラー）
+              今日までのタスクの内訳（ジャンル別カラー）
             </p>
             <div class="canvas-container">
               <canvas id="today-pie-chart"></canvas>
@@ -68,7 +68,7 @@
       <div class="form-grid">
         <!-- タスク登録フォーム -->
         <section class="panel form-panel">
-          <h2>➕ タスク登録フォーム</h2>
+          <h2>タスク登録フォーム</h2>
           <form id="task-form">
             <div class="form-group">
               <label for="task-title"
@@ -105,8 +105,8 @@
                   >重要度 <span class="required">*</span></label
                 >
                 <select id="task-priority" required>
-                  <option value="1">1 (低)</option>
-                  <option value="2">2 (やや低)</option>
+                  <option value="1">1 (メモ)</option>
+                  <option value="2">2 (低)</option>
                   <option value="3" selected>3 (中)</option>
                   <option value="4">4 (高)</option>
                   <option value="5">5 (緊急)</option>
@@ -129,9 +129,9 @@
 
         <!-- ジャンル改廃パーツ -->
         <section class="panel genre-panel">
-          <h2>⚙️ ジャンル管理（追加・削除）</h2>
+          <h2>ジャンル管理（追加・削除）</h2>
 
-          <!-- 新規ジャンルの追加フォーム（カラーピッカー追加） -->
+          <!-- 新規ジャンルの追加フォーム（カラーピッカー） -->
           <form id="genre-form" class="inline-form">
             <div class="genre-input-wrap">
               <input
