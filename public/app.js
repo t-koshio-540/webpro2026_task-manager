@@ -1,25 +1,26 @@
-// アプリケーション内のデータを一時格納するメモリ空間（状態管理）
+// アプリの状態管理空間
 let appState = {
-  tasks: [], // APIから取得したタスク全件
-  genres: [], // APIから取得したジャンル全件
+  tasks: [],
+  genres: [],
   sortKeys: {
-    // テーブルごとの現在のソートキーと昇順/降順管理
-    incomplete: { column: "due_date", asc: true },
-    // 動的に追加されるジャンルテーブルのソート状態もここに追加されます
+    incomplete: { column: "remaining_time", asc: true }, // 初期ソートは残り時間が短い順
   },
 };
 
-// ページが読み込まれたら開始
 document.addEventListener("DOMContentLoaded", () => {
   initializeApp();
+
+  // ウィンドウのリサイズ時にグラフを鮮明に保ちつつ再描画
+  window.addEventListener("resize", () => {
+    drawTimelineChart();
+    drawPieChart();
+  });
 });
 
-// 初期化処理
 async function initializeApp() {
-  await fetchGenres(); // まずジャンルを取得（タスクにジャンル名が必要なため）
-  await fetchTasks(); // タスクの取得と描画
+  await fetchGenres();
+  await fetchTasks();
 
-  // イベントリスナーの登録
   document
     .getElementById("task-form")
     .addEventListener("submit", handleTaskSubmit);
@@ -30,15 +31,50 @@ async function initializeApp() {
     .getElementById("add-genre-view-btn")
     .addEventListener("click", createDynamicGenreView);
 
-  // デフォルトで未完了タスクテーブルのヘッダーにソートイベントを設定
   setupTableSort("incomplete-tasks-table", "incomplete", renderIncompleteTasks);
 }
 
 /* ==========================================
-   1. API通信（バックエンドとの非同期データ送受信）
+   1. 残り時間 ＆ 超過時間の計算アルゴリズム（時・分・日・週）
+   ========================================== */
+function calculateRemainingTime(dueDateStr, dueTimeStr) {
+  // 時刻が省略されていたら「その日の終わり（23:59:59）」に補正
+  const timePart = dueTimeStr ? dueTimeStr : "23:59:59";
+  const targetDate = new Date(`${dueDateStr}T${timePart}`);
+  const now = new Date();
+
+  const diffMs = targetDate.getTime() - now.getTime(); // ミリ秒単位の差分
+  const absDiff = Math.abs(diffMs);
+  const isOverdue = diffMs < 0;
+
+  let displayText = "";
+  const oneHour = 60 * 60 * 1000;
+  const oneDay = 24 * oneHour;
+  const oneWeek = 7 * oneDay;
+
+  // 条件分岐：1週間以上、1日以上、1日未満（時分）
+  if (absDiff >= oneWeek) {
+    displayText = "1週間以上";
+  } else if (absDiff >= oneDay) {
+    const days = Math.floor(absDiff / oneDay);
+    displayText = `${days}日`;
+  } else {
+    const hours = Math.floor(absDiff / oneHour);
+    const mins = Math.floor((absDiff % oneHour) / (60 * 1000));
+    displayText = `${hours}時間${mins}分`;
+  }
+
+  return {
+    text: isOverdue ? `${displayText}遅れ` : displayText,
+    isOverdue: isOverdue,
+    diffMs: diffMs, // ソートで使用するミリ秒の生データ
+  };
+}
+
+/* ==========================================
+   2. API通信処理
    ========================================== */
 
-// バックエンドから全ジャンルを取得
 async function fetchGenres() {
   try {
     const response = await fetch("/api/genres");
@@ -46,25 +82,26 @@ async function fetchGenres() {
     updateGenreDropdowns();
     renderGenreManagementList();
   } catch (err) {
-    console.error("ジャンルの取得に失敗しました:", err);
+    console.error("ジャンル取得失敗:", err);
   }
 }
 
-// バックエンドから全タスクを取得
 async function fetchTasks() {
   try {
     const response = await fetch("/api/tasks");
     appState.tasks = await response.json();
 
-    // 各画面部品の再レンダリングを実行
     renderIncompleteTasks();
     renderAllDynamicGenreViews();
+
+    // タスクが更新されたら分析グラフも最新データで更新
+    drawTimelineChart();
+    drawPieChart();
   } catch (err) {
-    console.error("タスクの取得に失敗しました:", err);
+    console.error("タスク取得失敗:", err);
   }
 }
 
-// タスク登録のハンドラ
 async function handleTaskSubmit(e) {
   e.preventDefault();
   const data = {
@@ -84,45 +121,39 @@ async function handleTaskSubmit(e) {
     });
     if (response.ok) {
       document.getElementById("task-form").reset();
-      await fetchTasks(); // 成功したら一覧を更新
-    } else {
-      const err = await response.json();
-      alert("タスク登録に失敗しました: " + err.error);
+      await fetchTasks();
     }
   } catch (err) {
-    console.error("登録時通信エラー:", err);
+    console.error("タスク登録失敗:", err);
   }
 }
 
-// 新規ジャンル登録のハンドラ
 async function handleGenreSubmit(e) {
   e.preventDefault();
   const name = document.getElementById("new-genre-name").value;
+  const color = document.getElementById("new-genre-color").value; // 新規カラー
 
   try {
     const response = await fetch("/api/genres", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, color }),
     });
     if (response.ok) {
       document.getElementById("new-genre-name").value = "";
-      await fetchGenres(); // ジャンルリストを更新
-      await fetchTasks(); // ジャンル名変更を反映するためタスクも再読込
-    } else {
-      const err = await response.json();
-      alert("ジャンル登録に失敗しました: " + err.error);
+      document.getElementById("new-genre-color").value = "#3498db";
+      await fetchGenres();
+      await fetchTasks();
     }
   } catch (err) {
-    console.error("ジャンル登録エラー:", err);
+    console.error("ジャンル追加失敗:", err);
   }
 }
 
-// ジャンル削除
 async function deleteGenre(id) {
   if (
     !confirm(
-      "本当にこのジャンルを削除しますか？ このジャンルが割り当てられていたタスクは「ジャンル未設定」に更新されます。",
+      "本当にこのジャンルを削除しますか？ タスク側は「未設定」に置き換わります。",
     )
   )
     return;
@@ -130,14 +161,13 @@ async function deleteGenre(id) {
     const response = await fetch(`/api/genres/${id}`, { method: "DELETE" });
     if (response.ok) {
       await fetchGenres();
-      await fetchTasks(); // タスクのジャンル表示も連動して更新するため
+      await fetchTasks();
     }
   } catch (err) {
     console.error("ジャンル削除失敗:", err);
   }
 }
 
-// タスクの完了トグル（未完了↔完了の変更）
 async function toggleTaskStatus(id, currentStatus) {
   const nextStatus = currentStatus === 1 ? 0 : 1;
   try {
@@ -150,28 +180,26 @@ async function toggleTaskStatus(id, currentStatus) {
       await fetchTasks();
     }
   } catch (err) {
-    console.error("ステータス更新失敗:", err);
+    console.error("更新失敗:", err);
   }
 }
 
-// タスク削除
 async function deleteTask(id) {
-  if (!confirm("このタスクを削除してよろしいですか？")) return;
+  if (!confirm("削除しますか？")) return;
   try {
     const response = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
     if (response.ok) {
       await fetchTasks();
     }
   } catch (err) {
-    console.error("タスク削除失敗:", err);
+    console.error("削除失敗:", err);
   }
 }
 
 /* ==========================================
-   2. ドロップダウン & UIパーツ更新
+   3. レンダリング & ソート定義
    ========================================== */
 
-// タスク登録フォームのジャンル一覧セレクトボックスを更新
 function updateGenreDropdowns() {
   const select = document.getElementById("task-genre");
   select.innerHTML = '<option value="">(ジャンル未設定)</option>';
@@ -182,10 +210,9 @@ function updateGenreDropdowns() {
     select.appendChild(opt);
   });
 
-  // 既に作成されている「動的ジャンルビュー」の中のドロップダウンも同期して更新する
   const dynamicSelects = document.querySelectorAll(".dynamic-genre-select");
   dynamicSelects.forEach((sel) => {
-    const currentVal = sel.value; // 現在選択中の値を保持
+    const val = sel.value;
     sel.innerHTML = '<option value="">-- ジャンルを選択 --</option>';
     appState.genres.forEach((genre) => {
       const opt = document.createElement("option");
@@ -193,43 +220,46 @@ function updateGenreDropdowns() {
       opt.textContent = genre.name;
       sel.appendChild(opt);
     });
-    sel.value = currentVal; // 値を戻す
+    sel.value = val;
   });
 }
 
-// ジャンル改廃エリアの一覧を再表示
 function renderGenreManagementList() {
   const list = document.getElementById("genre-management-list");
   list.innerHTML = "";
   appState.genres.forEach((genre) => {
     const li = document.createElement("li");
+    // 各ジャンルの隣に、割り当てられた色のインジケータ（丸い円）を表示
     li.innerHTML = `
-            <span>${escapeHTML(genre.name)}</span>
+            <div>
+                <span class="genre-color-indicator" style="background-color: ${genre.color}"></span>
+                <span>${escapeHTML(genre.name)}</span>
+            </div>
             <button class="btn btn-danger" onclick="deleteGenre(${genre.id})">削除</button>
         `;
     list.appendChild(li);
   });
 }
 
-/* ==========================================
-   3. レンダリング ＆ ソートロジック
-   ========================================== */
-
-// テーブルソート共通ロジック
+// ソート関数
 function sortTasksArray(tasksArray, sortKey, ascending) {
   return [...tasksArray].sort((a, b) => {
-    let valA = a[sortKey];
-    let valB = b[sortKey];
+    let valA, valB;
 
-    // 期限日時のマージ比較（日付 + 時刻でソートできるように補正）
-    if (sortKey === "due_date") {
-      const timeA = a.due_time || "23:59:59";
-      const timeB = b.due_time || "23:59:59";
-      valA = `${a.due_date}T${timeA}`;
-      valB = `${b.due_date}T${timeB}`;
+    if (sortKey === "remaining_time") {
+      // 残り時間でソート（超過ミリ秒数。期限超過のマイナス値が先頭に来るように評価）
+      valA = calculateRemainingTime(a.due_date, a.due_time).diffMs;
+      valB = calculateRemainingTime(b.due_date, b.due_time).diffMs;
+    } else if (sortKey === "due_date") {
+      const tA = a.due_time || "23:59:59";
+      const tB = b.due_time || "23:59:59";
+      valA = `${a.due_date}T${tA}`;
+      valB = `${b.due_date}T${tB}`;
+    } else {
+      valA = a[sortKey];
+      valB = b[sortKey];
     }
 
-    // 数値・文字列別の比較
     if (typeof valA === "number" && typeof valB === "number") {
       return ascending ? valA - valB : valB - valA;
     }
@@ -243,7 +273,6 @@ function sortTasksArray(tasksArray, sortKey, ascending) {
   });
 }
 
-// ヘッダーにクリックソート用のイベントを付与する関数
 function setupTableSort(tableId, stateKey, renderFn) {
   const table = document.getElementById(tableId);
   if (!table) return;
@@ -254,10 +283,8 @@ function setupTableSort(tableId, stateKey, renderFn) {
       const currentSort = appState.sortKeys[stateKey];
 
       if (currentSort && currentSort.column === column) {
-        // 同じ列なら昇順・降順を反転
         currentSort.asc = !currentSort.asc;
       } else {
-        // 違う列なら新しく登録
         appState.sortKeys[stateKey] = { column: column, asc: true };
       }
       renderFn();
@@ -265,46 +292,65 @@ function setupTableSort(tableId, stateKey, renderFn) {
   });
 }
 
-// 行全体のHTML組み立て（後からスタイル設定できるように重要度クラス・完了状態をクラスに付与）
+// 共通TR行のHTML生成
 function createRowHTML(task) {
   const priorityText =
     ["低 (1)", "やや低 (2)", "中 (3)", "高 (4)", "緊急 (5)"][
       task.priority - 1
     ] || task.priority;
-  const isCompletedChecked = task.is_completed === 1 ? "checked" : "";
+  const isChecked = task.is_completed === 1 ? "checked" : "";
 
-  // スタイルクラス設計
-  // - .priority-${task.priority}：重要度に応じてCSSで個別に色付け可能
-  // - .is-completed / .is-incomplete：完了状態に応じて取り消し線など制御可能
+  // 残り時間・超過情報の取得
+  const timeInfo = calculateRemainingTime(task.due_date, task.due_time);
+
+  // クラス切り替えのロジック
+  // 未完了で、かつ期限を過ぎていたら 'is-overdue' クラスを付与
+  const overdueRowClass =
+    task.is_completed === 0 && timeInfo.isOverdue ? "is-overdue" : "";
+  const completedRowClass =
+    task.is_completed === 1 ? "is-completed" : "is-incomplete";
+
+  // 残り時間のセルの内訳
+  const remainingCellHTML =
+    task.is_completed === 1
+      ? '<span class="remaining-time">—</span>'
+      : timeInfo.isOverdue
+        ? `<span class="remaining-time overdue-highlight">${escapeHTML(timeInfo.text)}</span>`
+        : `<span class="remaining-time">${escapeHTML(timeInfo.text)}</span>`;
+
+  // ジャンルタグの背景色を、DBに格納された色に置換
+  const badgeColor = task.genre_color || "#94a3b8";
+
   return `
-        <tr class="task-row priority-${task.priority} ${task.is_completed === 1 ? "is-completed" : "is-incomplete"}" data-task-id="${task.id}">
+        <tr class="task-row priority-${task.priority} ${completedRowClass} ${overdueRowClass}" data-task-id="${task.id}">
             <td><strong>${escapeHTML(task.title)}</strong></td>
             <td>
                 ${escapeHTML(task.due_date)} 
-                <span class="text-secondary">${task.due_time ? escapeHTML(task.due_time) : ""}</span>
+                <span style="color:#64748b; font-size:0.85rem;">${task.due_time ? escapeHTML(task.due_time) : ""}</span>
             </td>
-            <td><span class="genre-tag">${escapeHTML(task.genre_name || "未分類")}</span></td>
+            <td>${remainingCellHTML}</td>
+            <td>
+                <span class="genre-tag" style="background-color: ${badgeColor};">
+                    ${escapeHTML(task.genre_name || "未分類")}
+                </span>
+            </td>
             <td>${priorityText}</td>
             <td><small>${escapeHTML(task.comment || "")}</small></td>
             <td>
-                <input type="checkbox" ${isCompletedChecked} onchange="toggleTaskStatus(${task.id}, ${task.is_completed})" title="完了を切り替え">
+                <input type="checkbox" ${isChecked} onchange="toggleTaskStatus(${task.id}, ${task.is_completed})">
                 <button class="btn btn-danger" onclick="deleteTask(${task.id})">削除</button>
             </td>
         </tr>
     `;
 }
 
-// 全ての未完了タスクテーブルの描画
 function renderIncompleteTasks() {
   const list = document.getElementById("incomplete-tasks-list");
   list.innerHTML = "";
 
-  // 未完了(is_completed === 0)のみにフィルタリング
   let incompleteList = appState.tasks.filter((t) => t.is_completed === 0);
-
-  // ソートキーに基づいて並び替え
   const sortConfig = appState.sortKeys["incomplete"] || {
-    column: "due_date",
+    column: "remaining_time",
     asc: true,
   };
   incompleteList = sortTasksArray(
@@ -315,7 +361,7 @@ function renderIncompleteTasks() {
 
   if (incompleteList.length === 0) {
     list.innerHTML =
-      '<tr><td colspan="6" style="text-align: center; color: #7f8c8d;">未完了のタスクはありません🎉</td></tr>';
+      '<tr><td colspan="7" style="text-align: center; color: #7f8c8d;">未完了のタスクはありません🎉</td></tr>';
     return;
   }
 
@@ -325,12 +371,11 @@ function renderIncompleteTasks() {
 }
 
 /* ==========================================
-   4. ジャンル別タスク一覧（複数配置の動的ビュー）
+   4. ジャンル別タスク一覧（複数配置）
    ========================================== */
 
-let dynamicViewCounter = 0; // 複数配置されるビューに一意のIDを与えるカウンター
+let dynamicViewCounter = 0;
 
-// 動的なジャンル表示ビュー（コンテナ）を作成
 function createDynamicGenreView() {
   dynamicViewCounter++;
   const containerId = `genre-view-${dynamicViewCounter}`;
@@ -338,20 +383,18 @@ function createDynamicGenreView() {
   const selectId = `genre-select-${dynamicViewCounter}`;
   const tbodyId = `genre-tbody-${dynamicViewCounter}`;
 
-  // ソートの初期定義
-  appState.sortKeys[containerId] = { column: "due_date", asc: true };
+  appState.sortKeys[containerId] = { column: "remaining_time", asc: true };
 
   const html = `
         <div class="dynamic-genre-box" id="${containerId}">
             <div class="dynamic-genre-box-header">
                 <div>
-                    <strong>🔍 抽出条件：</strong>
+                    <strong>🔍 表示ジャンル：</strong>
                     <select id="${selectId}" class="dynamic-genre-select">
                         <option value="">-- ジャンルを選択 --</option>
-                        <!-- ここにジャンルが自動挿入されます -->
                     </select>
                 </div>
-                <button class="btn btn-danger" onclick="removeDynamicGenreView('${containerId}')">× このビューを閉じる</button>
+                <button class="btn btn-danger" onclick="removeDynamicGenreView('${containerId}')">× ビューを閉じる</button>
             </div>
             
             <div class="table-wrapper">
@@ -360,6 +403,7 @@ function createDynamicGenreView() {
                         <tr>
                             <th data-sort="title">タイトル ⇅</th>
                             <th data-sort="due_date">期限 ⇅</th>
+                            <th data-sort="remaining_time">残り時間 ⇅</th>
                             <th data-sort="genre_name">ジャンル ⇅</th>
                             <th data-sort="priority">重要度 ⇅</th>
                             <th data-sort="comment">コメント ⇅</th>
@@ -367,7 +411,7 @@ function createDynamicGenreView() {
                         </tr>
                     </thead>
                     <tbody id="${tbodyId}">
-                        <tr><td colspan="6" style="text-align: center; color: #7f8c8d;">上のメニューからジャンルを選んでください。</td></tr>
+                        <tr><td colspan="7" style="text-align: center; color: #7f8c8d;">ジャンルを選択してください。</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -377,36 +421,29 @@ function createDynamicGenreView() {
   document
     .getElementById("dynamic-genre-containers")
     .insertAdjacentHTML("beforeend", html);
-
-  // 新たに作られたセレクトボックスに値を反映
   updateGenreDropdowns();
 
-  // セレクトボックス変更時に、自動で該当ジャンルを描画
   const selectEl = document.getElementById(selectId);
   selectEl.addEventListener("change", () => {
     renderSpecificGenreView(containerId, selectEl.value, tbodyId);
   });
 
-  // 新テーブルのヘッダーにクリックソートをバインド
   setupTableSort(tableId, containerId, () => {
     renderSpecificGenreView(containerId, selectEl.value, tbodyId);
   });
 }
 
-// 登録されている全ての動的ジャンルビューを一斉リフレッシュ
 function renderAllDynamicGenreViews() {
   const boxes = document.querySelectorAll(".dynamic-genre-box");
   boxes.forEach((box) => {
-    const containerId = box.id;
     const selectEl = box.querySelector(".dynamic-genre-select");
     const tbodyEl = box.querySelector("tbody");
     if (selectEl && tbodyEl) {
-      renderSpecificGenreView(containerId, selectEl.value, tbodyEl.id);
+      renderSpecificGenreView(box.id, selectEl.value, tbodyEl.id);
     }
   });
 }
 
-// 指定のジャンルビューにフィルタリングされたテーブルを描画
 function renderSpecificGenreView(containerId, genreId, tbodyId) {
   const tbody = document.getElementById(tbodyId);
   if (!tbody) return;
@@ -414,23 +451,20 @@ function renderSpecificGenreView(containerId, genreId, tbodyId) {
 
   if (!genreId) {
     tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align: center; color: #7f8c8d;">ジャンルが選択されていません。</td></tr>';
+      '<tr><td colspan="7" style="text-align: center; color: #7f8c8d;">ジャンルを選択してください。</td></tr>';
     return;
   }
 
-  // 特定のジャンルIDで絞り込む
   let filtered = appState.tasks.filter((t) => t.genre_id === parseInt(genreId));
-
-  // ソートを適用
   const sortConfig = appState.sortKeys[containerId] || {
-    column: "due_date",
+    column: "remaining_time",
     asc: true,
   };
   filtered = sortTasksArray(filtered, sortConfig.column, sortConfig.asc);
 
   if (filtered.length === 0) {
     tbody.innerHTML =
-      '<tr><td colspan="6" style="text-align: center; color: #7f8c8d;">このジャンルのタスクは現在ありません。</td></tr>';
+      '<tr><td colspan="7" style="text-align: center; color: #7f8c8d;">このジャンルのタスクは現在ありません。</td></tr>';
     return;
   }
 
@@ -439,17 +473,226 @@ function renderSpecificGenreView(containerId, genreId, tbodyId) {
   });
 }
 
-// 動的に作成した表示コンテナを消去する
 function removeDynamicGenreView(containerId) {
-  const element = document.getElementById(containerId);
-  if (element) {
-    element.remove();
-    delete appState.sortKeys[containerId]; // 使用していたソート定義の削除
+  const el = document.getElementById(containerId);
+  if (el) {
+    el.remove();
+    delete appState.sortKeys[containerId];
   }
 }
 
 /* ==========================================
-   5. セキュリティ対策用（XSS防止サニタイジング）
+   5. Canvas描画：統計区画
+   ========================================== */
+
+// --- グラフ1：今後の負荷タイムライン（前日から1週間、6時間区切り） ---
+function drawTimelineChart() {
+  const canvas = document.getElementById("timeline-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
+  // 高解像度ディスプレイ（Retina）でぼやけるのを防ぐ
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const width = rect.width;
+  const height = rect.height;
+  ctx.clearRect(0, 0, width, height);
+
+  const activeTasks = appState.tasks.filter((t) => t.is_completed === 0);
+
+  // 時間スケールの準備
+  const now = Date.now();
+  const startMs = now - 24 * 60 * 60 * 1000; // 前日（24時間前）
+  const binSizeMs = 6 * 60 * 60 * 1000; // 6時間単位
+  const totalBins = 32; // 24h + (7 * 24h) = 192h / 6 = 32 区間
+
+  // 32個の「ビン（時間区切り）」の箱を作る
+  const bins = Array.from({ length: totalBins }, (_, i) => {
+    const bStart = startMs + i * binSizeMs;
+    const bEnd = bStart + binSizeMs;
+    return {
+      start: bStart,
+      end: bEnd,
+      weights: {}, // ジャンルごとの重要度蓄積（genre_id: priority_sum）
+      total: 0,
+    };
+  });
+
+  // 各未完了タスクを該当するビンへ分類
+  activeTasks.forEach((task) => {
+    const timePart = task.due_time || "23:59:59";
+    const taskTime = new Date(`${task.due_date}T${timePart}`).getTime();
+
+    const binIdx = Math.floor((taskTime - startMs) / binSizeMs);
+    if (binIdx >= 0 && binIdx < totalBins) {
+      const gId = task.genre_id || 0; // 0 は未分類
+      bins[binIdx].weights[gId] =
+        (bins[binIdx].weights[gId] || 0) + task.priority;
+      bins[binIdx].total += task.priority;
+    }
+  });
+
+  // 描画マージン設定
+  const padL = 35;
+  const padR = 15;
+  const padT = 20;
+  const padB = 30;
+  const chartW = width - padL - padR;
+  const chartH = height - padT - padB;
+
+  // Y軸の最大値判定（重要度の合計の最大。最低目盛り5を確保）
+  let maxVal = Math.max(...bins.map((b) => b.total), 5);
+
+  // 1. グリッドとY軸目盛りの描画
+  ctx.strokeStyle = "#e2e8f0";
+  ctx.lineWidth = 1;
+  ctx.fillStyle = "#64748b";
+  ctx.font = "9px sans-serif";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
+
+  const gridLines = 4;
+  for (let i = 0; i <= gridLines; i++) {
+    const val = Math.round((maxVal / gridLines) * i);
+    const y = padT + chartH - (i / gridLines) * chartH;
+
+    ctx.fillText(val, padL - 6, y);
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(width - padR, y);
+    ctx.stroke();
+  }
+
+  // 2. 積み上げ棒グラフの描画
+  const barWidth = Math.max(1, chartW / totalBins - 2);
+
+  bins.forEach((bin, idx) => {
+    if (bin.total === 0) return;
+
+    const x = padL + idx * (chartW / totalBins) + 1;
+    let currentY = padT + chartH;
+
+    // ジャンルごとに色分けして積み上げる
+    Object.entries(bin.weights).forEach(([gId, weight]) => {
+      const genre = appState.genres.find((g) => g.id === parseInt(gId));
+      const color = genre ? genre.color : "#cbd5e1"; // 未分類は灰色
+      const barH = (weight / maxVal) * chartH;
+
+      ctx.fillStyle = color;
+      ctx.fillRect(x, currentY - barH, barWidth, barH);
+      currentY -= barH; // 上へと積み上げる
+    });
+  });
+
+  // 3. X軸の目盛り（24時間＝4つのビンごとに日付を描画）
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+
+  for (let i = 0; i < totalBins; i += 4) {
+    const bTime = new Date(startMs + i * binSizeMs);
+    const label = `${bTime.getMonth() + 1}/${bTime.getDate()}`;
+    const x = padL + i * (chartW / totalBins) + barWidth / 2;
+
+    ctx.fillStyle = "#64748b";
+    ctx.fillText(label, x, padT + chartH + 6);
+
+    ctx.strokeStyle = "#94a3b8";
+    ctx.beginPath();
+    ctx.moveTo(x, padT + chartH);
+    ctx.lineTo(x, padT + chartH + 4);
+    ctx.stroke();
+  }
+}
+
+// --- グラフ2：当日の残りタスクのジャンル割合円グラフ ---
+function drawPieChart() {
+  const canvas = document.getElementById("today-pie-chart");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  ctx.scale(dpr, dpr);
+
+  const width = rect.width;
+  const height = rect.height;
+  ctx.clearRect(0, 0, width, height);
+
+  // 今日のローカル日付（YYYY-MM-DD 形式）の取得
+  const todayStr = new Date().toLocaleDateString("sv-SE"); // "YYYY-MM-DD"
+
+  // 今日の未完了タスクだけにフィルタ
+  const todayTasks = appState.tasks.filter(
+    (t) => t.due_date === todayStr && t.is_completed === 0,
+  );
+
+  if (todayTasks.length === 0) {
+    ctx.fillStyle = "#94a3b8";
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("今日が期限の未完了タスクは", width / 2, height / 2 - 10);
+    ctx.fillText("現在ありません！🎉", width / 2, height / 2 + 10);
+    return;
+  }
+
+  // ジャンルごとの件数集計
+  const counts = {};
+  todayTasks.forEach((task) => {
+    const gId = task.genre_id || 0;
+    counts[gId] = (counts[gId] || 0) + 1;
+  });
+
+  const total = todayTasks.length;
+  const centerX = width * 0.35; // 円グラフ本体は左寄り
+  const centerY = height / 2;
+  const radius = Math.min(width * 0.22, height * 0.35);
+
+  let startAngle = -Math.PI / 2; // 時計の12時の位置から開始
+
+  const legendX = width * 0.68; // 右側に凡例を描く
+  let legendY = 25;
+
+  ctx.font = "10px sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+
+  Object.entries(counts).forEach(([gId, count]) => {
+    const genre = appState.genres.find((g) => g.id === parseInt(gId));
+    const color = genre ? genre.color : "#cbd5e1";
+    const name = genre ? genre.name : "未分類";
+    const sliceAngle = (count / total) * 2 * Math.PI;
+
+    // 1. パイの扇形を描画
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
+    ctx.closePath();
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    startAngle += sliceAngle;
+
+    // 2. 凡例を描画（色四角 ＋ 件数）
+    ctx.fillStyle = color;
+    ctx.fillRect(legendX, legendY - 5, 10, 10);
+
+    ctx.fillStyle = "#334155";
+    const displayName = name.length > 6 ? name.substring(0, 5) + ".." : name;
+    ctx.fillText(`${displayName} (${count}件)`, legendX + 15, legendY);
+
+    legendY += 18;
+  });
+}
+
+/* ==========================================
+   6. サニタイジング関数 (XSS防止)
    ========================================== */
 function escapeHTML(str) {
   if (!str) return "";

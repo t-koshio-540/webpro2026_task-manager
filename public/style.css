@@ -1,10 +1,10 @@
-/* 全体スタイルリセットと変数定義 */
+/* --- 以前の基本スタイル設定はそのまま維持 --- */
 :root {
   --primary-color: #3498db;
   --success-color: #2ecc71;
   --danger-color: #e74c3c;
   --warning-color: #f1c40f;
-  --bg-color: #f8f9fa;
+  --bg-color: #f0f4f8;
   --panel-bg: #ffffff;
   --text-color: #2c3e50;
   --border-color: #e2e8f0;
@@ -21,26 +21,25 @@ body {
 }
 
 header {
-  background-color: #2c3e50;
+  background-color: #1e293b;
   color: white;
   padding: 1.5rem;
   text-align: center;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
 .container {
-  max-width: 1200px;
+  max-width: 1250px;
   margin: 2rem auto;
   padding: 0 1rem;
 }
 
-/* 共通パネルカード */
 .panel {
   background: var(--panel-bg);
   border-radius: 8px;
   padding: 1.5rem;
   margin-bottom: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
   border: 1px solid var(--border-color);
 }
 
@@ -48,14 +47,16 @@ header {
   margin-top: 0;
   border-bottom: 2px solid var(--primary-color);
   padding-bottom: 0.5rem;
+  font-size: 1.35rem;
 }
 
 .instruction {
-  font-size: 0.85rem;
-  color: #7f8c8d;
+  font-size: 0.8rem;
+  color: #64748b;
+  margin-bottom: 1rem;
 }
 
-/* 2カラムフォームレイアウト */
+/* フォームとグリッド */
 .form-grid {
   display: grid;
   grid-template-columns: 2fr 1fr;
@@ -68,7 +69,6 @@ header {
   }
 }
 
-/* フォーム部品 */
 .form-group {
   margin-bottom: 1rem;
 }
@@ -77,6 +77,7 @@ header {
   display: block;
   font-weight: bold;
   margin-bottom: 0.3rem;
+  font-size: 0.9rem;
 }
 
 .form-row {
@@ -103,12 +104,18 @@ textarea {
   font-size: 0.95rem;
 }
 
-input:focus,
-select:focus,
-textarea:focus {
-  outline: none;
-  border-color: var(--primary-color);
-  box-shadow: 0 0 4px rgba(52, 152, 219, 0.3);
+/* ジャンル入力周りの横並び */
+.genre-input-wrap {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#new-genre-color {
+  width: 60px;
+  height: 42px;
+  padding: 2px;
+  border: 1px solid #cbd5e1;
+  cursor: pointer;
 }
 
 /* ボタン */
@@ -132,12 +139,12 @@ textarea:focus {
 }
 
 .btn-secondary {
-  background-color: #95a5a6;
+  background-color: #475569;
   color: white;
 }
 
 .btn-secondary:hover {
-  background-color: #7f8c8d;
+  background-color: #334155;
 }
 
 .btn-danger {
@@ -145,6 +152,7 @@ textarea:focus {
   color: white;
   padding: 0.3rem 0.6rem;
   font-size: 0.8rem;
+  border-radius: 4px;
 }
 
 /* テーブルスタイル */
@@ -163,40 +171,102 @@ td {
   padding: 0.8rem;
   text-align: left;
   border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
 }
 
 th {
-  background-color: #f1f5f9;
+  background-color: #f8fafc;
   cursor: pointer;
   user-select: none;
 }
 
 th:hover {
-  background-color: #cbd5e1;
+  background-color: #e2e8f0;
 }
 
-/* 行ごとのスタイル設定のための構造設計（ここが採点ポイント！） */
+/* --- 期限切れ・残り時間のための個別デザイン --- */
 
-/* 1. 重要度に応じたスタイリング（行全体に適用） */
-.task-row.priority-5 {
-  background-color: #fff1f2; /* 緊急タスクは背景を薄い赤に */
-  border-left: 5px solid var(--danger-color);
-}
-.task-row.priority-4 {
-  background-color: #fffbeb; /* 重要度高は薄い黄に */
-  border-left: 5px solid var(--warning-color);
-}
-.task-row.priority-1 {
-  opacity: 0.8; /* 重要度の低いタスクは少し透過させる */
+/* 期限切れタスク(is-overdue)全体の強調表示 */
+.task-row.is-overdue {
+  background-color: #fff1f0 !important; /* 薄い赤の警告背景 */
 }
 
-/* 2. 完了状態による取り消し線表示 */
-.task-row.is-completed td {
-  text-decoration: line-through;
-  color: #94a3b8;
+.task-row.is-overdue td {
+  color: #a8071a; /* 文字列をダークレッドに変えて緊迫感を出す */
 }
 
-/* ジャンル一覧のスタイル */
+/* 「遅れ」文字の点滅CSS */
+.remaining-time.overdue-highlight {
+  color: #ff4d4f;
+  font-weight: bold;
+  animation: flash-animation 1.5s infinite alternate;
+}
+
+@keyframes flash-animation {
+  0% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ジャンル色タグ */
+.genre-tag {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  font-size: 0.75rem;
+  color: white;
+  font-weight: bold;
+  text-shadow: 0px 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* --- 統計区画（2カラムグラフ用レイアウト） --- */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 2fr 1.1fr; /* タイムラインが横広、円グラフが縦 */
+  gap: 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.stats-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 1.2rem;
+}
+
+.stats-card h3 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: #1e293b;
+  border-left: 4px solid var(--primary-color);
+  padding-left: 0.5rem;
+}
+
+.canvas-container {
+  position: relative;
+  width: 100%;
+  height: 250px;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+  padding: 8px;
+  box-sizing: border-box;
+}
+
+canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* ジャンル管理一覧 */
 #genre-management-list {
   list-style: none;
   padding: 0;
@@ -212,7 +282,17 @@ th:hover {
   border-radius: 4px;
 }
 
-/* 動的ジャンルブロック */
+.genre-color-indicator {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+/* 動的追加ジャンルビュー */
 .genre-section-header {
   display: flex;
   justify-content: space-between;

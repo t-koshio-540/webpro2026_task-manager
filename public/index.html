@@ -14,9 +14,10 @@
     <main class="container">
       <!-- 1. すべての未完了タスクエリア -->
       <section class="panel">
-        <h2>未完了タスク</h2>
+        <h2>🚨 すべての未完了タスク</h2>
         <p class="instruction">
-          表のヘッダーをクリックすると、その列で昇順・降順ソートが可能です。
+          💡
+          表のヘッダーをクリックすると、その列（残り時間含む）でソートが可能です。
         </p>
         <div class="table-wrapper">
           <table id="incomplete-tasks-table">
@@ -24,6 +25,7 @@
               <tr>
                 <th data-sort="title">タイトル ⇅</th>
                 <th data-sort="due_date">期限 ⇅</th>
+                <th data-sort="remaining_time">残り時間 ⇅</th>
                 <th data-sort="genre_name">ジャンル ⇅</th>
                 <th data-sort="priority">重要度 ⇅</th>
                 <th data-sort="comment">コメント ⇅</th>
@@ -37,11 +39,36 @@
         </div>
       </section>
 
+      <!-- 【追加】新設：統計区画（可視化パーツ） -->
+      <section class="panel statistics-panel">
+        <h2>📊 タスク分析（リアルタイム統計）</h2>
+        <div class="stats-grid">
+          <div class="stats-card">
+            <h3>📈 負荷推移タイムライン（前日〜1週間・6時間ごと）</h3>
+            <p class="instruction">
+              縦軸：時間枠内にあるタスクの【重要度の合計値】（ジャンルカラーで積み上げ表示）
+            </p>
+            <div class="canvas-container">
+              <canvas id="timeline-chart"></canvas>
+            </div>
+          </div>
+          <div class="stats-card">
+            <h3>🍰 本日の未完了タスク・ジャンル割合</h3>
+            <p class="instruction">
+              今日期限のタスクの内訳（ジャンル別カラー）
+            </p>
+            <div class="canvas-container">
+              <canvas id="today-pie-chart"></canvas>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- 2. 中段：登録フォーム ＆ ジャンル改廃パーツ -->
       <div class="form-grid">
         <!-- タスク登録フォーム -->
         <section class="panel form-panel">
-          <h2>タスク登録フォーム</h2>
+          <h2>➕ タスク登録フォーム</h2>
           <form id="task-form">
             <div class="form-group">
               <label for="task-title"
@@ -78,8 +105,8 @@
                   >重要度 <span class="required">*</span></label
                 >
                 <select id="task-priority" required>
-                  <option value="1">1 (仮)</option>
-                  <option value="2">2 (低)</option>
+                  <option value="1">1 (低)</option>
+                  <option value="2">2 (やや低)</option>
                   <option value="3" selected>3 (中)</option>
                   <option value="4">4 (高)</option>
                   <option value="5">5 (緊急)</option>
@@ -100,24 +127,37 @@
           </form>
         </section>
 
-        <!-- ジャンル改廃（管理）パーツ -->
+        <!-- ジャンル改廃パーツ -->
         <section class="panel genre-panel">
-          <h2>ジャンル管理（追加・削除）</h2>
+          <h2>⚙️ ジャンル管理（追加・削除）</h2>
 
-          <!-- 新規ジャンルの追加フォーム -->
+          <!-- 新規ジャンルの追加フォーム（カラーピッカー追加） -->
           <form id="genre-form" class="inline-form">
-            <input
-              type="text"
-              id="new-genre-name"
-              placeholder="新しいジャンル名"
-              required
-            />
-            <button type="submit" class="btn btn-secondary">追加</button>
+            <div class="genre-input-wrap">
+              <input
+                type="text"
+                id="new-genre-name"
+                placeholder="新しいジャンル名"
+                required
+              />
+              <input
+                type="color"
+                id="new-genre-color"
+                value="#3498db"
+                title="ジャンルカラーを選択"
+              />
+            </div>
+            <button
+              type="submit"
+              class="btn btn-secondary"
+              style="width: 100%; margin-top: 0.5rem"
+            >
+              ジャンルを追加
+            </button>
           </form>
 
           <hr />
 
-          <!-- 登録済みジャンルのリスト（削除ボタン付き） -->
           <h3>既存のジャンル一覧</h3>
           <ul id="genre-management-list">
             <!-- JSで動的にジャンルリストを生成 -->
@@ -125,7 +165,7 @@
         </section>
       </div>
 
-      <!-- 3. ジャンルごとのタスク一覧（複数配置・動的追加可能） -->
+      <!-- 3. ジャンルごとのタスク一覧 -->
       <section class="panel">
         <div class="genre-section-header">
           <h2>📁 ジャンル別タスクビュー</h2>
@@ -133,13 +173,9 @@
             ＋ ビューを追加する
           </button>
         </div>
-        <p class="instruction">
-          ※「ビューを追加」を押すと、選択した特定のジャンルだけを抽出表示するテーブルを何個でも追加配置できます。
-        </p>
 
-        <!-- ジャンル別の表示エリアが追加されるコンテナ -->
         <div id="dynamic-genre-containers">
-          <!-- JSでここに動的なビューブロックが追加されます -->
+          <!-- JSで動的にビューブロックが追加されます -->
         </div>
       </section>
     </main>

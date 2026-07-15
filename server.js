@@ -1,27 +1,23 @@
 const express = require("express");
-const { Pool } = require("pg"); // PostgreSQL用の接続プール
-const sqlite3 = require("sqlite3").verbose(); // ローカルフォールバック用のSQLite
+const { Pool } = require("pg");
+const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT || 3000; // すでに実施されたポート対策！
+const PORT = process.env.PORT || 3000; // ポートエラー対策を維持
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-// データベース接続用の変数
 let pgPool = null;
 let sqliteDb = null;
 const isProduction = process.env.DATABASE_URL !== undefined;
 
 if (isProduction) {
   console.log("Render環境（PostgreSQL）で起動します。");
-  // Render上の環境変数 DATABASE_URL を用いて接続設定を行います
   pgPool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-      rejectUnauthorized: false, // Renderの無料PostgreSQL接続に必要なSSL設定
-    },
+    ssl: { rejectUnauthorized: false },
   });
 } else {
   console.log("ローカル開発環境（SQLite）で起動します。");
@@ -32,19 +28,26 @@ if (isProduction) {
 }
 
 // ==========================================
-// データベースの初期化（テーブル作成）
+// データベースの初期化 & 自動カラム追加
 // ==========================================
 if (isProduction) {
-  // PostgreSQLでのテーブル作成（シリアル型、外部キー制約の設定など）
+  // 1. PostgreSQL テーブル初期化（color カラムをデフォルト値付きで追加）
   pgPool
     .query(
       `
         CREATE TABLE IF NOT EXISTS genres (
             id SERIAL PRIMARY KEY,
-            name VARCHAR(100) UNIQUE NOT NULL
+            name VARCHAR(100) UNIQUE NOT NULL,
+            color VARCHAR(7) DEFAULT '#3498db'
         );
     `,
     )
+    .then(() => {
+      // 既存のDBにcolor列がない場合のための自動マイグレーション
+      return pgPool.query(
+        `ALTER TABLE genres ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#3498db';`,
+      );
+    })
     .then(() => {
       return pgPool.query(`
             CREATE TABLE IF NOT EXISTS tasks (
@@ -61,27 +64,39 @@ if (isProduction) {
         `);
     })
     .then(async () => {
-      // 初期データ登録
       const res = await pgPool.query("SELECT COUNT(*) FROM genres");
       if (parseInt(res.rows[0].count) === 0) {
+        // 初期ジャンルに分かりやすい色をセット
         const defaultGenres = [
-          "大学の課題",
-          "アルバイト",
-          "プライベート",
-          "就職活動",
+          { name: "大学の課題", color: "#e74c3c" }, // 赤
+          { name: "アルバイト", color: "#f1c40f" }, // 黄
+          { name: "プライベート", color: "#2ecc71" }, // 緑
+          { name: "就職活動", color: "#9b59b6" }, // 紫
         ];
-        for (const genre of defaultGenres) {
-          await pgPool.query("INSERT INTO genres (name) VALUES ($1)", [genre]);
+        for (const g of defaultGenres) {
+          await pgPool.query(
+            "INSERT INTO genres (name, color) VALUES ($1, $2)",
+            [g.name, g.color],
+          );
         }
       }
     })
     .catch((err) => console.error("PostgreSQL初期化エラー:", err));
 } else {
-  // ローカル用SQLite初期化
+  // 2. SQLite テーブル初期化 & マイグレーション
   sqliteDb.serialize(() => {
     sqliteDb.run(
-      "CREATE TABLE IF NOT EXISTS genres (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS genres (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, color TEXT DEFAULT '#3498db')",
     );
+
+    // SQLite用の color 列追加（すでに存在する場合は無視されます）
+    sqliteDb.run(
+      "ALTER TABLE genres ADD COLUMN color TEXT DEFAULT '#3498db'",
+      (err) => {
+        // エラーは「既に列がある」という内容が多いため無視してOK
+      },
+    );
+
     sqliteDb.run(`
             CREATE TABLE IF NOT EXISTS tasks (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -95,16 +110,19 @@ if (isProduction) {
                 FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
             )
         `);
+
     sqliteDb.get("SELECT COUNT(*) as count FROM genres", [], (err, row) => {
       if (!err && row.count === 0) {
         const defaultGenres = [
-          "大学の課題",
-          "アルバイト",
-          "プライベート",
-          "就職活動",
+          { name: "大学の課題", color: "#e74c3c" },
+          { name: "アルバイト", color: "#f1c40f" },
+          { name: "プライベート", color: "#2ecc71" },
+          { name: "就職活動", color: "#9b59b6" },
         ];
-        const stmt = sqliteDb.prepare("INSERT INTO genres (name) VALUES (?)");
-        defaultGenres.forEach((genre) => stmt.run(genre));
+        const stmt = sqliteDb.prepare(
+          "INSERT INTO genres (name, color) VALUES (?, ?)",
+        );
+        defaultGenres.forEach((g) => stmt.run(g.name, g.color));
         stmt.finalize();
       }
     });
@@ -112,10 +130,10 @@ if (isProduction) {
 }
 
 // ==========================================
-// API エンドポイント
+// API エンドポイント（color の返却/格納に対応）
 // ==========================================
 
-// --- ジャンル一覧取得 ---
+// ジャンル一覧取得
 app.get("/api/genres", async (req, res) => {
   if (isProduction) {
     try {
@@ -132,42 +150,44 @@ app.get("/api/genres", async (req, res) => {
   }
 });
 
-// --- ジャンル追加 ---
+// ジャンル追加
 app.post("/api/genres", async (req, res) => {
-  const { name } = req.body;
+  const { name, color } = req.body;
   if (!name) return res.status(400).json({ error: "ジャンル名が必要です" });
+  const genreColor = color || "#3498db";
 
   if (isProduction) {
     try {
-      // PostgreSQLのプレースホルダーは $1 を使用
       const result = await pgPool.query(
-        "INSERT INTO genres (name) VALUES ($1) RETURNING id",
-        [name],
+        "INSERT INTO genres (name, color) VALUES ($1, $2) RETURNING id",
+        [name, genreColor],
       );
-      res.json({ id: result.rows[0].id, name });
+      res.json({ id: result.rows[0].id, name, color: genreColor });
     } catch (err) {
       res
         .status(500)
-        .json({ error: "同名のジャンルが存在するか、追加に失敗しました。" });
+        .json({
+          error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+        });
     }
   } else {
     sqliteDb.run(
-      "INSERT INTO genres (name) VALUES (?)",
-      [name],
+      "INSERT INTO genres (name, color) VALUES (?, ?)",
+      [name, genreColor],
       function (err) {
         if (err)
           return res
             .status(500)
             .json({
-              error: "同名のジャンルが存在するか、追加に失敗しました。",
+              error: "追加に失敗しました。同名ジャンルがある可能性があります。",
             });
-        res.json({ id: this.lastID, name });
+        res.json({ id: this.lastID, name, color: genreColor });
       },
     );
   }
 });
 
-// --- ジャンル削除 ---
+// ジャンル削除
 app.delete("/api/genres/:id", async (req, res) => {
   const { id } = req.params;
   if (isProduction) {
@@ -185,10 +205,10 @@ app.delete("/api/genres/:id", async (req, res) => {
   }
 });
 
-// --- 全タスクの取得 ---
+// 全タスクの取得（JOINしてジャンルの色情報も一緒に引っ張ります）
 app.get("/api/tasks", async (req, res) => {
   const query = `
-        SELECT tasks.*, genres.name AS genre_name 
+        SELECT tasks.*, genres.name AS genre_name, genres.color AS genre_color
         FROM tasks 
         LEFT JOIN genres ON tasks.genre_id = genres.id
     `;
@@ -207,7 +227,7 @@ app.get("/api/tasks", async (req, res) => {
   }
 });
 
-// --- タスク新規追加 ---
+// タスク新規登録
 app.post("/api/tasks", async (req, res) => {
   const { title, due_date, due_time, genre_id, priority, comment } = req.body;
   if (!title || !due_date || !priority) {
@@ -253,7 +273,7 @@ app.post("/api/tasks", async (req, res) => {
   }
 });
 
-// --- タスク更新（完了状態のトグル） ---
+// タスク更新 (完了状態トグル)
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   const { is_completed } = req.body;
@@ -280,7 +300,7 @@ app.put("/api/tasks/:id", async (req, res) => {
   }
 });
 
-// --- タスク削除 ---
+// タスク削除
 app.delete("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   if (isProduction) {
