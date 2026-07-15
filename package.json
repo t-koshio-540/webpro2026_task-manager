@@ -1,21 +1,13 @@
 {
-  "id": 1,
-  "title": "資料を作成する",
-  "priority": 3,
-  "category": {
-    "id": 2,
-    "name": "仕事"
+  "name": "webpro-task-manager",
+  "version": "1.0.0",
+  "description": "3-Tier Task Management Application",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
-    "express": "^5.2.1",
-    "pg": "^8.22.0"
-  },
-  "devDependencies": {
-    "prisma": "^7.8.0"
-  },
-  "scripts": {
-    "start": "node app.js"
+    "express": "^4.19.2",
+    "sqlite3": "^5.1.7"
   }
 }

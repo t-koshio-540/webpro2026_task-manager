@@ -2,145 +2,148 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <title>タスク管理アプリ</title>
-    <style>
-      body {
-        font-family: sans-serif;
-        margin: 30px;
-      }
-      .section {
-        margin-bottom: 30px;
-        padding: 15px;
-        border: 1px solid #ccc;
-      }
-      .task-item {
-        padding: 10px;
-        border-bottom: 1px solid #eee;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>高度なタスク管理システム</title>
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body>
-    <h1>タスク管理（最低限バージョン）</h1>
+    <header>
+      <h1>📋 タスク管理システム</h1>
+    </header>
 
-    <div class="section">
-      <h2>新規タスク登録</h2>
-      <form id="taskForm">
-        <label>タイトル: <input type="text" id="title" required /></label
-        ><br /><br />
-        <label
-          >優先度:
-          <select id="priority">
-            <option value="3">3 (高)</option>
-            <option value="2">2 (中)</option>
-            <option value="1">1 (低)</option>
-          </select> </label
-        ><br /><br />
-        <label
-          >カテゴリー:
-          <select id="categoryId">
-            <option value="1">仕事 (ID: 1)</option>
-            <option value="2">プライベート (ID: 2)</option>
-          </select> </label
-        ><br /><br />
-        <button type="submit">タスクを追加</button>
-      </form>
-    </div>
+    <main class="container">
+      <!-- 1. すべての未完了タスクエリア -->
+      <section class="panel">
+        <h2>🚨 すべての未完了タスク</h2>
+        <p class="instruction">
+          💡 表のヘッダーをクリックすると、その列で昇順・降順ソートが可能です。
+        </p>
+        <div class="table-wrapper">
+          <table id="incomplete-tasks-table">
+            <thead>
+              <tr>
+                <th data-sort="title">タイトル ⇅</th>
+                <th data-sort="due_date">期限 ⇅</th>
+                <th data-sort="genre_name">ジャンル ⇅</th>
+                <th data-sort="priority">重要度 ⇅</th>
+                <th data-sort="comment">コメント ⇅</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="incomplete-tasks-list">
+              <!-- JSで動的にタスク行が生成されます -->
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-    <div class="section">
-      <h2>表示設定</h2>
-      <label
-        >カテゴリー絞り込み:
-        <select id="filterCategory">
-          <option value="">すべて</option>
-          <option value="1">仕事</option>
-          <option value="2">プライベート</option>
-        </select>
-      </label>
+      <!-- 2. 中段：登録フォーム ＆ ジャンル改廃パーツ -->
+      <div class="form-grid">
+        <!-- タスク登録フォーム -->
+        <section class="panel form-panel">
+          <h2>➕ タスク登録フォーム</h2>
+          <form id="task-form">
+            <div class="form-group">
+              <label for="task-title"
+                >タイトル <span class="required">*</span></label
+              >
+              <input
+                type="text"
+                id="task-title"
+                required
+                placeholder="やることの概要を入力"
+              />
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="task-date"
+                  >期限(日付) <span class="required">*</span></label
+                >
+                <input type="date" id="task-date" required />
+              </div>
+              <div class="form-group">
+                <label for="task-time">期限(時刻, 任意)</label>
+                <input type="time" id="task-time" />
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="task-genre">ジャンル</label>
+                <select id="task-genre">
+                  <!-- JSで動的にジャンル選択肢を追加 -->
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="task-priority"
+                  >重要度 <span class="required">*</span></label
+                >
+                <select id="task-priority" required>
+                  <option value="1">1 (低)</option>
+                  <option value="2">2 (やや低)</option>
+                  <option value="3" selected>3 (中)</option>
+                  <option value="4">4 (高)</option>
+                  <option value="5">5 (緊急)</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="task-comment">コメント(任意)</label>
+              <textarea
+                id="task-comment"
+                rows="2"
+                placeholder="詳細メモなど"
+              ></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary">
+              タスクを登録する
+            </button>
+          </form>
+        </section>
 
-      <label style="margin-left: 20px"
-        >優先度ソート:
-        <select id="sortOrder">
-          <option value="desc">高い順</option>
-          <option value="asc">低い順</option>
-        </select>
-      </label>
+        <!-- ジャンル改廃（管理）パーツ -->
+        <section class="panel genre-panel">
+          <h2>⚙️ ジャンル管理（追加・削除）</h2>
 
-      <button id="fetchBtn" style="margin-left: 10px">
-        条件を適用して更新
-      </button>
-    </div>
+          <!-- 新規ジャンルの追加フォーム -->
+          <form id="genre-form" class="inline-form">
+            <input
+              type="text"
+              id="new-genre-name"
+              placeholder="新しいジャンル名"
+              required
+            />
+            <button type="submit" class="btn btn-secondary">追加</button>
+          </form>
 
-    <div class="section">
-      <h2>タスク一覧</h2>
-      <div id="taskList"></div>
-    </div>
+          <hr />
 
-    <script>
-      // ページが読み込まれたら、まず一度タスク一覧を取得して表示する
-      document.addEventListener("DOMContentLoaded", fetchTasks);
+          <!-- 登録済みジャンルのリスト（削除ボタン付き） -->
+          <h3>既存のジャンル一覧</h3>
+          <ul id="genre-management-list">
+            <!-- JSで動的にジャンルリストを生成 -->
+          </ul>
+        </section>
+      </div>
 
-      // 「条件を適用して更新」ボタンを押したときの処理
-      document.getElementById("fetchBtn").addEventListener("click", fetchTasks);
+      <!-- 3. ジャンルごとのタスク一覧（複数配置・動的追加可能） -->
+      <section class="panel">
+        <div class="genre-section-header">
+          <h2>📁 ジャンル別タスクビュー</h2>
+          <button id="add-genre-view-btn" class="btn btn-secondary">
+            ＋ ビューを追加する
+          </button>
+        </div>
+        <p class="instruction">
+          「ビューを追加」を押すと、選択した特定のジャンルだけを抽出表示するテーブルを何個でも追加配置できます。
+        </p>
 
-      // フォームが送信された（タスクを追加する）ときの処理
-      document
-        .getElementById("taskForm")
-        .addEventListener("submit", async (e) => {
-          e.preventDefault(); // ページのリロードを防ぐ
+        <!-- ジャンル別の表示エリアが追加されるコンテナ -->
+        <div id="dynamic-genre-containers">
+          <!-- JSでここに動的なビューブロックが追加されます -->
+        </div>
+      </section>
+    </main>
 
-          const title = document.getElementById("title").value;
-          const priority = document.getElementById("priority").value;
-          const categoryId = document.getElementById("categoryId").value;
-
-          // POSTリクエストでバックエンドにデータを送信
-          const response = await fetch("/tasks", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title, priority, categoryId }),
-          });
-
-          if (response.ok) {
-            document.getElementById("title").value = ""; // 入力欄をクリア
-            fetchTasks(); // 一覧を再読み込み
-          } else {
-            alert("タスクの追加に失敗しました。");
-          }
-        });
-
-      // タスク一覧をAPIから取得して画面に描画する関数
-      async function fetchTasks() {
-        const categoryId = document.getElementById("filterCategory").value;
-        const order = document.getElementById("sortOrder").value;
-
-        // クエリパラメータを組み立てる (例: /tasks?categoryId=1&order=desc)
-        let url = `/tasks?order=${order}`;
-        if (categoryId) {
-          url += `&categoryId=${categoryId}`;
-        }
-
-        const response = await fetch(url);
-        const tasks = await response.json();
-
-        const taskListDiv = document.getElementById("taskList");
-        taskListDiv.innerHTML = ""; // 一度表示をリセット
-
-        if (tasks.length === 0) {
-          taskListDiv.innerHTML = "<p>該当するタスクはありません。</p>";
-          return;
-        }
-
-        // 取得したデータをループしてHTMLを生成
-        tasks.forEach((task) => {
-          const item = document.createElement("div");
-          item.className = "task-item";
-          item.innerHTML = `
-                    <strong>【${task.category ? task.category.name : "なし"}】</strong> 
-                    ${task.title} 
-                    (優先度: ${task.priority})
-                `;
-          taskListDiv.appendChild(item);
-        });
-      }
-    </script>
+    <script src="app.js"></script>
   </body>
 </html>
