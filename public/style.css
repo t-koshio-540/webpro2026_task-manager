@@ -28,6 +28,13 @@ header {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
 }
 
+h2 {
+  background-color: #7f7f7f;
+  color: white;
+  padding: 0.5rem;
+  border-left: 20px solid #3498db;
+}
+
 .container {
   max-width: 1250px;
   margin: 2rem auto;
