@@ -9,6 +9,33 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
+// ==========================================
+// パスワード認証設定
+// ==========================================
+const READ_PASSWORD = process.env.READ_PASSWORD || "Yomitori";
+const WRITE_PASSWORD = process.env.WRITE_PASSWORD || "Kakikomi";
+
+// 書き込み権限チェック用ミドルウェア
+function requireWriteAuth(req, res, next) {
+  const inputPassword = req.headers["x-write-password"];
+  if (inputPassword !== WRITE_PASSWORD) {
+    return res
+      .status(401)
+      .json({ error: "書き込みパスワードが正しくありません。" });
+  }
+  next();
+}
+
+// 読み取りパスワード検証用API（任意確認用）
+app.post("/api/auth/read", (req, res) => {
+  const { password } = req.body;
+  if (password === READ_PASSWORD) {
+    res.json({ success: true });
+  } else {
+    res.status(401).json({ error: "読み取りパスワードが違います。" });
+  }
+});
+
 let pgPool = null;
 let sqliteDb = null;
 const isProduction = process.env.DATABASE_URL !== undefined;
@@ -207,7 +234,7 @@ app.get("/api/genres", async (req, res) => {
 });
 
 // ジャンル追加
-app.post("/api/genres", async (req, res) => {
+app.post("/api/genres", requireWriteAuth, async (req, res) => {
   const { name, color } = req.body;
   if (!name) return res.status(400).json({ error: "ジャンル名が必要です" });
   const genreColor = color || "#3498db";
@@ -240,7 +267,7 @@ app.post("/api/genres", async (req, res) => {
 });
 
 // ジャンル削除
-app.delete("/api/genres/:id", async (req, res) => {
+app.delete("/api/genres/:id", requireWriteAuth, async (req, res) => {
   const { id } = req.params;
   if (isProduction) {
     try {
@@ -281,7 +308,7 @@ app.get("/api/tasks", async (req, res) => {
 });
 
 // 🔁 タスク新規登録（一括繰返し登録対応・非同期処理安全版）
-app.post("/api/tasks", async (req, res) => {
+app.post("/api/tasks", requireWriteAuth, async (req, res) => {
   const {
     title,
     due_date,
@@ -376,7 +403,7 @@ app.post("/api/tasks", async (req, res) => {
 });
 
 // タスク更新 (単純な完了トグル)
-app.put("/api/tasks/:id", async (req, res) => {
+app.put("/api/tasks/:id", requireWriteAuth, async (req, res) => {
   const { id } = req.params;
   const { is_completed } = req.body;
 
@@ -403,7 +430,7 @@ app.put("/api/tasks/:id", async (req, res) => {
 });
 
 // タスク削除
-app.delete("/api/tasks/:id", async (req, res) => {
+app.delete("/api/tasks/:id", requireWriteAuth, async (req, res) => {
   const { id } = req.params;
   if (isProduction) {
     try {

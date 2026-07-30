@@ -7,29 +7,70 @@ let appState = {
   },
 };
 
-document.addEventListener("DOMContentLoaded", () => {
-  initializeApp();
+// 閲覧パスワードの管理状態
+let currentReadPassword = "";
+const CORRECT_READ_PASS = "Yomitori"; // ※表示判定用
 
-  // ウィンドウのリサイズ時にグラフを鮮明に保ちつつ再描画
-  window.addEventListener("resize", () => {
-    drawTimelineChart();
-    drawPieChart();
-  });
+// テキストを伏字化するヘルパー関数
+function maskText(str) {
+  if (str === null || str === undefined || str === "") return "";
+  const stringified = String(str);
+  if (currentReadPassword === CORRECT_READ_PASS) {
+    return stringified; // パスワード一致時はそのまま表示
+  }
+  return "●".repeat(Math.min(Math.max(stringified.length, 4), 10)); // パスワード不一致時は伏字
+}
+
+// 画面全体の再描画（伏字状態の切り替え時などに実行）
+function refreshAllViews() {
+  updateGenreDropdowns();
+  renderIncompleteTasks();
+  renderAllDynamicGenreViews();
+  renderGenreManagementList();
+  drawTimelineChart();
+  drawPieChart();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const readPassInput = document.getElementById("read-password-input");
+  const readStatus = document.getElementById("read-auth-status");
+
+  if (readPassInput) {
+    readPassInput.addEventListener("input", (e) => {
+      currentReadPassword = e.target.value;
+      if (currentReadPassword === CORRECT_READ_PASS) {
+        if (readStatus) {
+          readStatus.textContent = "🔓 解除済み";
+          readStatus.style.color = "#2ecc71";
+        }
+      } else {
+        if (readStatus) {
+          readStatus.textContent = "🔒 伏字表示中";
+          readStatus.style.color = "#e74c3c";
+        }
+      }
+      // 再描画して伏字・解除状態を反映
+      refreshAllViews();
+    });
+  }
+
+  // アプリの初期化呼び出し
+  initializeApp();
 });
 
 async function initializeApp() {
   await fetchGenres();
   await fetchTasks();
 
-  document
-    .getElementById("task-form")
-    .addEventListener("submit", handleTaskSubmit);
-  document
-    .getElementById("genre-form")
-    .addEventListener("submit", handleGenreSubmit);
-  document
-    .getElementById("add-genre-view-btn")
-    .addEventListener("click", createDynamicGenreView);
+  const taskForm = document.getElementById("task-form");
+  if (taskForm) taskForm.addEventListener("submit", handleTaskSubmit);
+
+  const genreForm = document.getElementById("genre-form");
+  if (genreForm) genreForm.addEventListener("submit", handleGenreSubmit);
+
+  const addGenreBtn = document.getElementById("add-genre-view-btn");
+  if (addGenreBtn)
+    addGenreBtn.addEventListener("click", createDynamicGenreView);
 
   setupTableSort("incomplete-tasks-table", "incomplete", renderIncompleteTasks);
 }
@@ -73,9 +114,17 @@ function calculateRemainingTime(dueDateStr, dueTimeStr) {
    2. API通信処理
    ========================================== */
 
+// 書き込みパスワードの取得用ヘルパー
+function getWritePassword() {
+  const el = document.getElementById("write-password");
+  if (el && el.value) return el.value;
+  return prompt("書き込みパスワードを入力してください:") || "";
+}
+
 async function fetchGenres() {
   try {
     const response = await fetch("/api/genres");
+    if (!response.ok) throw new Error("ジャンル取得に失敗しました");
     appState.genres = await response.json();
     updateGenreDropdowns();
     renderGenreManagementList();
@@ -87,6 +136,7 @@ async function fetchGenres() {
 async function fetchTasks() {
   try {
     const response = await fetch("/api/tasks");
+    if (!response.ok) throw new Error("タスク取得に失敗しました");
     appState.tasks = await response.json();
 
     renderIncompleteTasks();
@@ -102,6 +152,12 @@ async function fetchTasks() {
 
 async function handleTaskSubmit(e) {
   e.preventDefault();
+  const writePassword = getWritePassword();
+  if (!writePassword) {
+    alert("書き込みパスワードを入力してください。");
+    return;
+  }
+
   const data = {
     title: document.getElementById("task-title").value,
     due_date: document.getElementById("task-date").value,
@@ -109,22 +165,28 @@ async function handleTaskSubmit(e) {
     genre_id: document.getElementById("task-genre").value || null,
     priority: document.getElementById("task-priority").value,
     comment: document.getElementById("task-comment").value || null,
-    // 🔁 繰り返し関連パラメータ
-    repeat_days: document.getElementById("repeat-days").value || 0,
-    repeat_hours: document.getElementById("repeat-hours").value || 0,
-    repeat_minutes: document.getElementById("repeat-minutes").value || 0,
-    repeat_times: document.getElementById("repeat-times").value || 1,
+    repeat_days: document.getElementById("repeat-days")?.value || 0,
+    repeat_hours: document.getElementById("repeat-hours")?.value || 0,
+    repeat_minutes: document.getElementById("repeat-minutes")?.value || 0,
+    repeat_times: document.getElementById("repeat-times")?.value || 1,
   };
 
   try {
     const response = await fetch("/api/tasks", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-write-password": writePassword,
+      },
       body: JSON.stringify(data),
     });
+
+    const resData = await response.json();
     if (response.ok) {
       document.getElementById("task-form").reset();
-      await fetchTasks(); // 確実にDB更新を待って再ロード
+      await fetchTasks();
+    } else {
+      alert(`エラー: ${resData.error || "登録に失敗しました"}`);
     }
   } catch (err) {
     console.error("タスク登録失敗:", err);
@@ -133,20 +195,33 @@ async function handleTaskSubmit(e) {
 
 async function handleGenreSubmit(e) {
   e.preventDefault();
+  const writePassword = getWritePassword();
+  if (!writePassword) {
+    alert("書き込みパスワードを入力してください。");
+    return;
+  }
+
   const name = document.getElementById("new-genre-name").value;
   const color = document.getElementById("new-genre-color").value;
 
   try {
     const response = await fetch("/api/genres", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-write-password": writePassword,
+      },
       body: JSON.stringify({ name, color }),
     });
+
+    const resData = await response.json();
     if (response.ok) {
       document.getElementById("new-genre-name").value = "";
       document.getElementById("new-genre-color").value = "#3498db";
       await fetchGenres();
       await fetchTasks();
+    } else {
+      alert(`エラー: ${resData.error || "ジャンル追加に失敗しました"}`);
     }
   } catch (err) {
     console.error("ジャンル追加失敗:", err);
@@ -160,11 +235,21 @@ async function deleteGenre(id) {
     )
   )
     return;
+
+  const writePassword = getWritePassword();
+  if (!writePassword) return;
+
   try {
-    const response = await fetch(`/api/genres/${id}`, { method: "DELETE" });
+    const response = await fetch(`/api/genres/${id}`, {
+      method: "DELETE",
+      headers: { "x-write-password": writePassword },
+    });
+    const resData = await response.json();
     if (response.ok) {
       await fetchGenres();
       await fetchTasks();
+    } else {
+      alert(`エラー: ${resData.error || "削除に失敗しました"}`);
     }
   } catch (err) {
     console.error("ジャンル削除失敗:", err);
@@ -172,15 +257,25 @@ async function deleteGenre(id) {
 }
 
 async function toggleTaskStatus(id, currentStatus) {
+  const writePassword = getWritePassword();
+  if (!writePassword) return;
+
   const nextStatus = currentStatus === 1 ? 0 : 1;
   try {
     const response = await fetch(`/api/tasks/${id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-write-password": writePassword,
+      },
       body: JSON.stringify({ is_completed: nextStatus }),
     });
+    const resData = await response.json();
     if (response.ok) {
       await fetchTasks();
+    } else {
+      alert(`エラー: ${resData.error || "更新に失敗しました"}`);
+      renderIncompleteTasks(); // 状態を戻すため再描画
     }
   } catch (err) {
     console.error("更新失敗:", err);
@@ -189,10 +284,20 @@ async function toggleTaskStatus(id, currentStatus) {
 
 async function deleteTask(id) {
   if (!confirm("削除しますか？")) return;
+
+  const writePassword = getWritePassword();
+  if (!writePassword) return;
+
   try {
-    const response = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    const response = await fetch(`/api/tasks/${id}`, {
+      method: "DELETE",
+      headers: { "x-write-password": writePassword },
+    });
+    const resData = await response.json();
     if (response.ok) {
       await fetchTasks();
+    } else {
+      alert(`エラー: ${resData.error || "削除に失敗しました"}`);
     }
   } catch (err) {
     console.error("削除失敗:", err);
@@ -210,7 +315,7 @@ function updateGenreDropdowns() {
     appState.genres.forEach((genre) => {
       const opt = document.createElement("option");
       opt.value = genre.id;
-      opt.textContent = genre.name;
+      opt.textContent = maskText(genre.name); // ジャンル選択肢も伏字化
       select.appendChild(opt);
     });
   }
@@ -222,7 +327,7 @@ function updateGenreDropdowns() {
     appState.genres.forEach((genre) => {
       const opt = document.createElement("option");
       opt.value = genre.id;
-      opt.textContent = genre.name;
+      opt.textContent = maskText(genre.name); // 動的ビューの選択肢も伏字化
       sel.appendChild(opt);
     });
     sel.value = val;
@@ -235,10 +340,11 @@ function renderGenreManagementList() {
   list.innerHTML = "";
   appState.genres.forEach((genre) => {
     const li = document.createElement("li");
+    const displayGenre = maskText(genre.name);
     li.innerHTML = `
             <div>
                 <span class="genre-color-indicator" style="background-color: ${genre.color}"></span>
-                <span>${escapeHTML(genre.name)}</span>
+                <span>${escapeHTML(displayGenre)}</span>
             </div>
             <button class="btn btn-danger" onclick="deleteGenre(${genre.id})">削除</button>
         `;
@@ -296,7 +402,7 @@ function setupTableSort(tableId, stateKey, renderFn) {
   });
 }
 
-// 共通TR行のHTML生成（繰り返しバッジを表示するように強化）
+// 共通TR行のHTML生成
 function createRowHTML(task) {
   const priorityText =
     ["低 (1)", "やや低 (2)", "中 (3)", "高 (4)", "緊急 (5)"][
@@ -312,36 +418,45 @@ function createRowHTML(task) {
   const completedRowClass =
     task.is_completed === 1 ? "is-completed" : "is-incomplete";
 
+  const displayTimeInfo = maskText(timeInfo.text);
   const remainingCellHTML =
     task.is_completed === 1
       ? '<span class="remaining-time">—</span>'
       : timeInfo.isOverdue
-        ? `<span class="remaining-time overdue-highlight">${escapeHTML(timeInfo.text)}</span>`
-        : `<span class="remaining-time">${escapeHTML(timeInfo.text)}</span>`;
+        ? `<span class="remaining-time overdue-highlight">${escapeHTML(displayTimeInfo)}</span>`
+        : `<span class="remaining-time">${escapeHTML(displayTimeInfo)}</span>`;
 
   const badgeColor = task.genre_color || "#94a3b8";
 
-  // 🔁 繰り返しバッジ表示の生成
+  // 各テキスト項目の伏字変換
+  const displayRIndex = maskText(task.repeat_index);
+  const displayRCount = maskText(task.repeat_count);
+  const displayTitle = maskText(task.title);
+  const displayDueDate = maskText(task.due_date);
+  const displayDueTime = maskText(task.due_time);
+  const displayGenre = maskText(task.genre_name);
+  const displayComment = maskText(task.comment);
+
   const repeatBadge =
     task.repeat_count && task.repeat_count > 1
-      ? `<span class="repeat-tag" style="display:inline-block; margin-left:0.4rem; padding:0.1rem 0.4rem; background:#e0f2fe; color:#0369a1; border-radius:12px; font-size:0.75rem; font-weight:bold; border:1px solid #bae6fd;">🔁 ${task.repeat_index}/${task.repeat_count}</span>`
+      ? `<span class="repeat-tag" style="display:inline-block; margin-left:0.4rem; padding:0.1rem 0.4rem; background:#e0f2fe; color:#0369a1; border-radius:12px; font-size:0.75rem; font-weight:bold; border:1px solid #bae6fd;">🔁 ${displayRIndex}/${displayRCount}</span>`
       : "";
 
   return `
         <tr class="task-row priority-${task.priority} ${completedRowClass} ${overdueRowClass}" data-task-id="${task.id}">
-            <td><strong>${escapeHTML(task.title)}</strong> ${repeatBadge}</td>
+            <td><strong>${escapeHTML(displayTitle)}</strong> ${repeatBadge}</td>
             <td>
-                ${escapeHTML(task.due_date)} 
-                <span style="color:#64748b; font-size:0.85rem;">${task.due_time ? escapeHTML(task.due_time) : ""}</span>
+                ${escapeHTML(displayDueDate)} 
+                <span style="color:#64748b; font-size:0.85rem;">${displayDueTime ? escapeHTML(displayDueTime) : ""}</span>
             </td>
             <td>${remainingCellHTML}</td>
             <td>
                 <span class="genre-tag" style="background-color: ${badgeColor};">
-                    ${escapeHTML(task.genre_name || "未分類")}
+                    ${escapeHTML(displayGenre || "未分類")}
                 </span>
             </td>
             <td>${priorityText}</td>
-            <td><small>${escapeHTML(task.comment || "")}</small></td>
+            <td><small>${escapeHTML(displayComment || "")}</small></td>
             <td>
                 <input type="checkbox" ${isChecked} onchange="toggleTaskStatus(${task.id}, ${task.is_completed})">
                 <button class="btn btn-danger" onclick="deleteTask(${task.id})">削除</button>
@@ -425,19 +540,20 @@ function createDynamicGenreView() {
         </div>
     `;
 
-  document
-    .getElementById("dynamic-genre-containers")
-    .insertAdjacentHTML("beforeend", html);
-  updateGenreDropdowns();
+  const container = document.getElementById("dynamic-genre-containers");
+  if (container) {
+    container.insertAdjacentHTML("beforeend", html);
+    updateGenreDropdowns();
 
-  const selectEl = document.getElementById(selectId);
-  selectEl.addEventListener("change", () => {
-    renderSpecificGenreView(containerId, selectEl.value, tbodyId);
-  });
+    const selectEl = document.getElementById(selectId);
+    selectEl.addEventListener("change", () => {
+      renderSpecificGenreView(containerId, selectEl.value, tbodyId);
+    });
 
-  setupTableSort(tableId, containerId, () => {
-    renderSpecificGenreView(containerId, selectEl.value, tbodyId);
-  });
+    setupTableSort(tableId, containerId, () => {
+      renderSpecificGenreView(containerId, selectEl.value, tbodyId);
+    });
+  }
 }
 
 function renderAllDynamicGenreViews() {
@@ -678,7 +794,11 @@ function drawPieChart() {
     ctx.fillRect(legendX, legendY - 5, 10, 10);
 
     ctx.fillStyle = "#334155";
-    const displayName = name.length > 6 ? name.substring(0, 5) + ".." : name;
+    const maskedGenreName = maskText(name);
+    const displayName =
+      maskedGenreName.length > 6
+        ? maskedGenreName.substring(0, 5) + ".."
+        : maskedGenreName;
     ctx.fillText(`${displayName} (${count}件)`, legendX + 15, legendY);
 
     legendY += 18;
@@ -690,7 +810,7 @@ function drawPieChart() {
    ========================================== */
 function escapeHTML(str) {
   if (!str) return "";
-  return str.replace(/[&<>'"]/g, (match) => {
+  return String(str).replace(/[&<>'"]/g, (match) => {
     const escapeMap = {
       "&": "&amp;",
       "<": "&lt;",
