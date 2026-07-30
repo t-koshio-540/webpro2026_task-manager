@@ -34,7 +34,7 @@
         <input
           type="password"
           id="read-password-input"
-          placeholder="パスワードを入力して解除"
+          placeholder="パスワードを入力して伏字を解除"
           style="
             padding: 6px 12px;
             border-radius: 4px;
@@ -73,7 +73,7 @@
         </div>
       </section>
 
-      <!-- 新設：統計区画（可視化パーツ） -->
+      <!-- 統計区画（可視化パーツ） -->
       <section class="panel statistics-panel">
         <h2>タスク分析（リアルタイム統計）</h2>
         <div class="stats-grid">
@@ -148,9 +148,9 @@
                 </select>
               </div>
             </div>
-            <!-- 🔁 繰り返し詳細指定フィールドグループ -->
+            <!-- 繰り返し詳細指定フィールドグループ -->
             <div class="repeat-config-box">
-              <label class="repeat-config-label">🔁 繰り返し設定</label>
+              <label class="repeat-config-label">↺ 繰り返し設定</label>
               <div class="repeat-inputs-grid">
                 <div class="repeat-input-unit">
                   <input
@@ -160,7 +160,7 @@
                     value="0"
                     placeholder="0"
                   />
-                  <span>日間</span>
+                  <span>日　</span>
                 </div>
                 <div class="repeat-input-unit">
                   <input
@@ -171,7 +171,7 @@
                     value="0"
                     placeholder="0"
                   />
-                  <span>時間</span>
+                  <span>時間　</span>
                 </div>
                 <div class="repeat-input-unit">
                   <input
@@ -193,7 +193,7 @@
                     placeholder="1"
                     required
                   />
-                  <span>回繰り返し</span>
+                  <span>回繰り返す</span>
                 </div>
               </div>
               <p
@@ -218,12 +218,12 @@
               <input
                 type="password"
                 id="write-password"
-                placeholder="Kakikomi"
+                placeholder="パスワードが必要です"
                 required
               />
             </div>
             <button type="submit" class="btn btn-primary">
-              タスクを登録する
+              このタスクを登録する
             </button>
           </form>
         </section>
