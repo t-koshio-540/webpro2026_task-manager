@@ -2,6 +2,7 @@ const express = require("express");
 const { Pool } = require("pg");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
+const { profileEnd } = require("console");
 
 const app = express();
 const PORT = process.env.PORT || 3000; // ポートエラー対策を維持
@@ -12,6 +13,21 @@ app.use(express.static(path.join(__dirname, "public")));
 let pgPool = null;
 let sqliteDb = null;
 const isProduction = process.env.DATABASE_URL !== undefined;
+
+// --- パスワードの初期設定 ---
+const READ_PASSWORD = process.env.READ_PASSWORD || "Yomitori";
+const WRITE_PASSWORD = process.env.WRITE_PASSWORD || "Kakikomi";
+
+// 【書き込みパスワードチェック用ミドルウェア】
+function verifyWritePassword(req, res, next) {
+  const clientWritePass = req.headers["x-write-password"];
+  if (clientWritePass !== WRITE_PASSWORD) {
+    return res
+      .status(403)
+      .json({ error: "書き込みパスワードが正しくありません。" });
+  }
+  next();
+}
 
 if (isProduction) {
   console.log("Render環境（PostgreSQL）で起動します。");
@@ -164,11 +180,9 @@ app.post("/api/genres", async (req, res) => {
       );
       res.json({ id: result.rows[0].id, name, color: genreColor });
     } catch (err) {
-      res
-        .status(500)
-        .json({
-          error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-        });
+      res.status(500).json({
+        error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+      });
     }
   } else {
     sqliteDb.run(
@@ -176,11 +190,9 @@ app.post("/api/genres", async (req, res) => {
       [name, genreColor],
       function (err) {
         if (err)
-          return res
-            .status(500)
-            .json({
-              error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-            });
+          return res.status(500).json({
+            error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+          });
         res.json({ id: this.lastID, name, color: genreColor });
       },
     );
@@ -212,6 +224,9 @@ app.get("/api/tasks", async (req, res) => {
         FROM tasks 
         LEFT JOIN genres ON tasks.genre_id = genres.id
     `;
+  //↓
+  const clientReadPass = req.headers["x-read-password"];
+
   if (isProduction) {
     try {
       const result = await pgPool.query(query);
@@ -316,6 +331,13 @@ app.delete("/api/tasks/:id", async (req, res) => {
       res.json({ message: "タスクを削除しました" });
     });
   }
+});
+
+// 【3. ジャンル一括登録 API (POST)】 - 書き込み認証が必要
+app.post("/api/genres/bulk", verifyWritePassword, (req, res) => {
+  const genres = req.body; // [{ name: "勉強", color: "#ff0000" }, ...]
+  saveGenresToDatabase(genres);
+  res.status(201).json({ message: "ジャンルを一括登録しました。" });
 });
 
 app.listen(PORT, () => {
