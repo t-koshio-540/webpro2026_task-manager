@@ -2,10 +2,9 @@ const express = require("express");
 const { Pool } = require("pg");
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
-const { profileEnd } = require("console");
 
 const app = express();
-const PORT = process.env.PORT || 3000; // ポートエラー対策を維持
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
@@ -13,21 +12,6 @@ app.use(express.static(path.join(__dirname, "public")));
 let pgPool = null;
 let sqliteDb = null;
 const isProduction = process.env.DATABASE_URL !== undefined;
-
-// --- パスワードの初期設定 ---
-const READ_PASSWORD = process.env.READ_PASSWORD || "Yomitori";
-const WRITE_PASSWORD = process.env.WRITE_PASSWORD || "Kakikomi";
-
-// 【書き込みパスワードチェック用ミドルウェア】
-function verifyWritePassword(req, res, next) {
-  const clientWritePass = req.headers["x-write-password"];
-  if (clientWritePass !== WRITE_PASSWORD) {
-    return res
-      .status(403)
-      .json({ error: "書き込みパスワードが正しくありません。" });
-  }
-  next();
-}
 
 if (isProduction) {
   console.log("Render環境（PostgreSQL）で起動します。");
@@ -44,50 +28,84 @@ if (isProduction) {
 }
 
 // ==========================================
+// 日付の繰り越し計算ヘルパー関数
+// ==========================================
+function calculateNextDueDate(currentDateStr, repeatType) {
+  const [year, month, day] = currentDateStr.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+
+  switch (repeatType) {
+    case "daily":
+      date.setDate(date.getDate() + 1);
+      break;
+    case "weekly":
+      date.setDate(date.getDate() + 7);
+      break;
+    case "monthly":
+      date.setMonth(date.getMonth() + 1);
+      break;
+    case "yearly":
+      date.setFullYear(date.getFullYear() + 1);
+      break;
+    default:
+      return null;
+  }
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// ==========================================
 // データベースの初期化 & 自動カラム追加
 // ==========================================
 if (isProduction) {
-  // 1. PostgreSQL テーブル初期化（color カラムをデフォルト値付きで追加）
   pgPool
     .query(
       `
-        CREATE TABLE IF NOT EXISTS genres (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(100) UNIQUE NOT NULL,
-            color VARCHAR(7) DEFAULT '#3498db'
-        );
+      CREATE TABLE IF NOT EXISTS genres (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          color VARCHAR(7) DEFAULT '#3498db'
+      );
     `,
     )
     .then(() => {
-      // 既存のDBにcolor列がない場合のための自動マイグレーション
       return pgPool.query(
         `ALTER TABLE genres ADD COLUMN IF NOT EXISTS color VARCHAR(7) DEFAULT '#3498db';`,
       );
     })
     .then(() => {
       return pgPool.query(`
-            CREATE TABLE IF NOT EXISTS tasks (
-                id SERIAL PRIMARY KEY,
-                title VARCHAR(255) NOT NULL,
-                due_date VARCHAR(10) NOT NULL,
-                due_time VARCHAR(8),
-                genre_id INTEGER,
-                priority INTEGER NOT NULL,
-                comment TEXT,
-                is_completed INTEGER DEFAULT 0,
-                CONSTRAINT fk_genre FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
-            );
-        `);
+          CREATE TABLE IF NOT EXISTS tasks (
+              id SERIAL PRIMARY KEY,
+              title VARCHAR(255) NOT NULL,
+              due_date VARCHAR(10) NOT NULL,
+              due_time VARCHAR(8),
+              genre_id INTEGER,
+              priority INTEGER NOT NULL,
+              comment TEXT,
+              is_completed INTEGER DEFAULT 0,
+              repeat_type VARCHAR(10) DEFAULT 'none',
+              CONSTRAINT fk_genre FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
+          );
+      `);
+    })
+    .then(() => {
+      // PostgreSQL: repeat_type カラムの自動追加マイグレーション
+      return pgPool.query(
+        `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_type VARCHAR(10) DEFAULT 'none';`,
+      );
     })
     .then(async () => {
       const res = await pgPool.query("SELECT COUNT(*) FROM genres");
       if (parseInt(res.rows[0].count) === 0) {
-        // 初期ジャンルに分かりやすい色をセット
         const defaultGenres = [
-          { name: "大学の課題", color: "#e74c3c" }, // 赤
-          { name: "アルバイト", color: "#f1c40f" }, // 黄
-          { name: "プライベート", color: "#2ecc71" }, // 緑
-          { name: "就職活動", color: "#9b59b6" }, // 紫
+          { name: "大学の課題", color: "#e74c3c" },
+          { name: "アルバイト", color: "#f1c40f" },
+          { name: "プライベート", color: "#2ecc71" },
+          { name: "就職活動", color: "#9b59b6" },
         ];
         for (const g of defaultGenres) {
           await pgPool.query(
@@ -99,33 +117,35 @@ if (isProduction) {
     })
     .catch((err) => console.error("PostgreSQL初期化エラー:", err));
 } else {
-  // 2. SQLite テーブル初期化 & マイグレーション
   sqliteDb.serialize(() => {
     sqliteDb.run(
       "CREATE TABLE IF NOT EXISTS genres (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE NOT NULL, color TEXT DEFAULT '#3498db')",
     );
-
-    // SQLite用の color 列追加（すでに存在する場合は無視されます）
     sqliteDb.run(
       "ALTER TABLE genres ADD COLUMN color TEXT DEFAULT '#3498db'",
-      (err) => {
-        // エラーは「既に列がある」という内容が多いため無視してOK
-      },
+      () => {},
     );
 
     sqliteDb.run(`
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                due_date TEXT NOT NULL,
-                due_time TEXT,
-                genre_id INTEGER,
-                priority INTEGER NOT NULL,
-                comment TEXT,
-                is_completed INTEGER DEFAULT 0,
-                FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
-            )
-        `);
+      CREATE TABLE IF NOT EXISTS tasks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          title TEXT NOT NULL,
+          due_date TEXT NOT NULL,
+          due_time TEXT,
+          genre_id INTEGER,
+          priority INTEGER NOT NULL,
+          comment TEXT,
+          is_completed INTEGER DEFAULT 0,
+          repeat_type TEXT DEFAULT 'none',
+          FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
+      )
+    `);
+
+    // SQLite: repeat_type カラムの自動追加マイグレーション
+    sqliteDb.run(
+      "ALTER TABLE tasks ADD COLUMN repeat_type TEXT DEFAULT 'none'",
+      () => {},
+    );
 
     sqliteDb.get("SELECT COUNT(*) as count FROM genres", [], (err, row) => {
       if (!err && row.count === 0) {
@@ -146,7 +166,7 @@ if (isProduction) {
 }
 
 // ==========================================
-// API エンドポイント（color の返却/格納に対応）
+// API エンドポイント
 // ==========================================
 
 // ジャンル一覧取得
@@ -180,9 +200,11 @@ app.post("/api/genres", async (req, res) => {
       );
       res.json({ id: result.rows[0].id, name, color: genreColor });
     } catch (err) {
-      res.status(500).json({
-        error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-      });
+      res
+        .status(500)
+        .json({
+          error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+        });
     }
   } else {
     sqliteDb.run(
@@ -190,9 +212,11 @@ app.post("/api/genres", async (req, res) => {
       [name, genreColor],
       function (err) {
         if (err)
-          return res.status(500).json({
-            error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-          });
+          return res
+            .status(500)
+            .json({
+              error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+            });
         res.json({ id: this.lastID, name, color: genreColor });
       },
     );
@@ -217,16 +241,13 @@ app.delete("/api/genres/:id", async (req, res) => {
   }
 });
 
-// 全タスクの取得（JOINしてジャンルの色情報も一緒に引っ張ります）
+// 全タスクの取得
 app.get("/api/tasks", async (req, res) => {
   const query = `
         SELECT tasks.*, genres.name AS genre_name, genres.color AS genre_color
         FROM tasks 
         LEFT JOIN genres ON tasks.genre_id = genres.id
     `;
-  //↓
-  const clientReadPass = req.headers["x-read-password"];
-
   if (isProduction) {
     try {
       const result = await pgPool.query(query);
@@ -242,18 +263,28 @@ app.get("/api/tasks", async (req, res) => {
   }
 });
 
-// タスク新規登録
+// タスク新規登録（repeat_type 対応）
 app.post("/api/tasks", async (req, res) => {
-  const { title, due_date, due_time, genre_id, priority, comment } = req.body;
+  const {
+    title,
+    due_date,
+    due_time,
+    genre_id,
+    priority,
+    comment,
+    repeat_type,
+  } = req.body;
   if (!title || !due_date || !priority) {
     return res.status(400).json({ error: "必須項目が不足しています。" });
   }
 
+  const repeatVal = repeat_type || "none";
+
   if (isProduction) {
     const query = `
-            INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed)
-            VALUES ($1, $2, $3, $4, $5, $6, 0) RETURNING id
-        `;
+      INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
+      VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING id
+    `;
     const params = [
       title,
       due_date,
@@ -261,6 +292,7 @@ app.post("/api/tasks", async (req, res) => {
       genre_id ? parseInt(genre_id) : null,
       parseInt(priority),
       comment || null,
+      repeatVal,
     ];
     try {
       const result = await pgPool.query(query, params);
@@ -270,9 +302,9 @@ app.post("/api/tasks", async (req, res) => {
     }
   } else {
     const query = `
-            INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed)
-            VALUES (?, ?, ?, ?, ?, ?, 0)
-        `;
+      INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+    `;
     const params = [
       title,
       due_date,
@@ -280,6 +312,7 @@ app.post("/api/tasks", async (req, res) => {
       genre_id || null,
       parseInt(priority),
       comment || null,
+      repeatVal,
     ];
     sqliteDb.run(query, params, function (err) {
       if (err) return res.status(500).json({ error: err.message });
@@ -288,30 +321,101 @@ app.post("/api/tasks", async (req, res) => {
   }
 });
 
-// タスク更新 (完了状態トグル)
+// タスク更新 (完了状態トグル ＆ 繰り返し自動生成)
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   const { is_completed } = req.body;
 
   if (isProduction) {
     try {
-      await pgPool.query("UPDATE tasks SET is_completed = $1 WHERE id = $2", [
-        is_completed,
-        id,
-      ]);
+      // 1. 対象の現在タスク情報を取得
+      const currentTaskRes = await pgPool.query(
+        "SELECT * FROM tasks WHERE id = $1",
+        [id],
+      );
+      const task = currentTaskRes.rows[0];
+
+      if (task) {
+        // ステータスを更新
+        await pgPool.query("UPDATE tasks SET is_completed = $1 WHERE id = $2", [
+          is_completed,
+          id,
+        ]);
+
+        // 未完了 -> 完了 に変更され、かつ繰り返し設定がある場合
+        if (
+          parseInt(is_completed) === 1 &&
+          task.repeat_type &&
+          task.repeat_type !== "none"
+        ) {
+          const nextDate = calculateNextDueDate(
+            task.due_date,
+            task.repeat_type,
+          );
+          if (nextDate) {
+            await pgPool.query(
+              `INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
+               VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`,
+              [
+                task.title,
+                nextDate,
+                task.due_time,
+                task.genre_id,
+                task.priority,
+                task.comment,
+                task.repeat_type,
+              ],
+            );
+          }
+        }
+      }
       res.json({ message: "タスクの状態を更新しました" });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   } else {
-    sqliteDb.run(
-      "UPDATE tasks SET is_completed = ? WHERE id = ?",
-      [is_completed, id],
-      function (err) {
-        if (err) return res.status(500).json({ error: err.message });
-        res.json({ message: "タスクの状態を更新しました" });
-      },
-    );
+    sqliteDb.get("SELECT * FROM tasks WHERE id = ?", [id], (err, task) => {
+      if (err || !task)
+        return res
+          .status(500)
+          .json({ error: err ? err.message : "タスクが見つかりません" });
+
+      sqliteDb.run(
+        "UPDATE tasks SET is_completed = ? WHERE id = ?",
+        [is_completed, id],
+        function (err) {
+          if (err) return res.status(500).json({ error: err.message });
+
+          // 未完了 -> 完了 に変更され、かつ繰り返し設定がある場合
+          if (
+            parseInt(is_completed) === 1 &&
+            task.repeat_type &&
+            task.repeat_type !== "none"
+          ) {
+            const nextDate = calculateNextDueDate(
+              task.due_date,
+              task.repeat_type,
+            );
+            if (nextDate) {
+              sqliteDb.run(
+                `INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
+               VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
+                [
+                  task.title,
+                  nextDate,
+                  task.due_time,
+                  task.genre_id,
+                  task.priority,
+                  task.comment,
+                  task.repeat_type,
+                ],
+              );
+            }
+          }
+          res.json({ message: "タスクの状態を更新しました" });
+        },
+      );
+    });
   }
 });
 
@@ -331,13 +435,6 @@ app.delete("/api/tasks/:id", async (req, res) => {
       res.json({ message: "タスクを削除しました" });
     });
   }
-});
-
-// 【3. ジャンル一括登録 API (POST)】 - 書き込み認証が必要
-app.post("/api/genres/bulk", verifyWritePassword, (req, res) => {
-  const genres = req.body; // [{ name: "勉強", color: "#ff0000" }, ...]
-  saveGenresToDatabase(genres);
-  res.status(201).json({ message: "ジャンルを一括登録しました。" });
 });
 
 app.listen(PORT, () => {

@@ -111,6 +111,7 @@ async function handleTaskSubmit(e) {
     genre_id: document.getElementById("task-genre").value || null,
     priority: document.getElementById("task-priority").value,
     comment: document.getElementById("task-comment").value || null,
+    repeat_type: document.getElementById("task-repeat").value || "none", // 🔁 追加
   };
 
   try {
@@ -368,6 +369,21 @@ function renderIncompleteTasks() {
   incompleteList.forEach((task) => {
     list.insertAdjacentHTML("beforeend", createRowHTML(task));
   });
+}
+
+function getRepeatLabel(repeatType) {
+  switch (repeatType) {
+    case "daily":
+      return "🔁 毎日";
+    case "weekly":
+      return "🔁 毎週";
+    case "monthly":
+      return "🔁 毎月";
+    case "yearly":
+      return "🔁 毎年";
+    default:
+      return "";
+  }
 }
 
 /* ==========================================
