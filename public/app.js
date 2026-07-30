@@ -35,15 +35,14 @@ async function initializeApp() {
 }
 
 /* ==========================================
-   1. 残り時間 ＆ 超過時間の計算アルゴリズム（時・分・日・週）
+   1. 残り時間 ＆ 超過時間の計算アルゴリズム
    ========================================== */
 function calculateRemainingTime(dueDateStr, dueTimeStr) {
-  // 時刻が省略されていたら「その日の終わり（23:59:59）」に補正
   const timePart = dueTimeStr ? dueTimeStr : "23:59:59";
   const targetDate = new Date(`${dueDateStr}T${timePart}`);
   const now = new Date();
 
-  const diffMs = targetDate.getTime() - now.getTime(); // ミリ秒単位の差分
+  const diffMs = targetDate.getTime() - now.getTime();
   const absDiff = Math.abs(diffMs);
   const isOverdue = diffMs < 0;
 
@@ -52,7 +51,6 @@ function calculateRemainingTime(dueDateStr, dueTimeStr) {
   const oneDay = 24 * oneHour;
   const oneWeek = 7 * oneDay;
 
-  // 条件分岐：1週間以上、1日以上、1日未満（時分）
   if (absDiff >= oneWeek) {
     displayText = "1週間以上";
   } else if (absDiff >= oneDay) {
@@ -67,7 +65,7 @@ function calculateRemainingTime(dueDateStr, dueTimeStr) {
   return {
     text: isOverdue ? `${displayText}遅れ` : displayText,
     isOverdue: isOverdue,
-    diffMs: diffMs, // ソートで使用するミリ秒の生データ
+    diffMs: diffMs,
   };
 }
 
@@ -94,7 +92,7 @@ async function fetchTasks() {
     renderIncompleteTasks();
     renderAllDynamicGenreViews();
 
-    // タスクが更新されたら分析グラフも最新データで更新
+    // グラフ更新
     drawTimelineChart();
     drawPieChart();
   } catch (err) {
@@ -111,7 +109,11 @@ async function handleTaskSubmit(e) {
     genre_id: document.getElementById("task-genre").value || null,
     priority: document.getElementById("task-priority").value,
     comment: document.getElementById("task-comment").value || null,
-    repeat_type: document.getElementById("task-repeat").value || "none", // 🔁 追加
+    // 🔁 繰り返し関連パラメータ
+    repeat_days: document.getElementById("repeat-days").value || 0,
+    repeat_hours: document.getElementById("repeat-hours").value || 0,
+    repeat_minutes: document.getElementById("repeat-minutes").value || 0,
+    repeat_times: document.getElementById("repeat-times").value || 1,
   };
 
   try {
@@ -122,7 +124,7 @@ async function handleTaskSubmit(e) {
     });
     if (response.ok) {
       document.getElementById("task-form").reset();
-      await fetchTasks();
+      await fetchTasks(); // 確実にDB更新を待って再ロード
     }
   } catch (err) {
     console.error("タスク登録失敗:", err);
@@ -132,7 +134,7 @@ async function handleTaskSubmit(e) {
 async function handleGenreSubmit(e) {
   e.preventDefault();
   const name = document.getElementById("new-genre-name").value;
-  const color = document.getElementById("new-genre-color").value; // 新規カラー
+  const color = document.getElementById("new-genre-color").value;
 
   try {
     const response = await fetch("/api/genres", {
@@ -203,13 +205,15 @@ async function deleteTask(id) {
 
 function updateGenreDropdowns() {
   const select = document.getElementById("task-genre");
-  select.innerHTML = '<option value="">(ジャンル未設定)</option>';
-  appState.genres.forEach((genre) => {
-    const opt = document.createElement("option");
-    opt.value = genre.id;
-    opt.textContent = genre.name;
-    select.appendChild(opt);
-  });
+  if (select) {
+    select.innerHTML = '<option value="">(ジャンル未設定)</option>';
+    appState.genres.forEach((genre) => {
+      const opt = document.createElement("option");
+      opt.value = genre.id;
+      opt.textContent = genre.name;
+      select.appendChild(opt);
+    });
+  }
 
   const dynamicSelects = document.querySelectorAll(".dynamic-genre-select");
   dynamicSelects.forEach((sel) => {
@@ -227,10 +231,10 @@ function updateGenreDropdowns() {
 
 function renderGenreManagementList() {
   const list = document.getElementById("genre-management-list");
+  if (!list) return;
   list.innerHTML = "";
   appState.genres.forEach((genre) => {
     const li = document.createElement("li");
-    // 各ジャンルの隣に、割り当てられた色のインジケータ（丸い円）を表示
     li.innerHTML = `
             <div>
                 <span class="genre-color-indicator" style="background-color: ${genre.color}"></span>
@@ -248,7 +252,6 @@ function sortTasksArray(tasksArray, sortKey, ascending) {
     let valA, valB;
 
     if (sortKey === "remaining_time") {
-      // 残り時間でソート（超過ミリ秒数。期限超過のマイナス値が先頭に来るように評価）
       valA = calculateRemainingTime(a.due_date, a.due_time).diffMs;
       valB = calculateRemainingTime(b.due_date, b.due_time).diffMs;
     } else if (sortKey === "due_date") {
@@ -293,7 +296,7 @@ function setupTableSort(tableId, stateKey, renderFn) {
   });
 }
 
-// 共通TR行のHTML生成
+// 共通TR行のHTML生成（繰り返しバッジを表示するように強化）
 function createRowHTML(task) {
   const priorityText =
     ["低 (1)", "やや低 (2)", "中 (3)", "高 (4)", "緊急 (5)"][
@@ -304,14 +307,11 @@ function createRowHTML(task) {
   // 残り時間・超過情報の取得
   const timeInfo = calculateRemainingTime(task.due_date, task.due_time);
 
-  // クラス切り替えのロジック
-  // 未完了で、かつ期限を過ぎていたら 'is-overdue' クラスを付与
   const overdueRowClass =
     task.is_completed === 0 && timeInfo.isOverdue ? "is-overdue" : "";
   const completedRowClass =
     task.is_completed === 1 ? "is-completed" : "is-incomplete";
 
-  // 残り時間のセルの内訳
   const remainingCellHTML =
     task.is_completed === 1
       ? '<span class="remaining-time">—</span>'
@@ -319,12 +319,17 @@ function createRowHTML(task) {
         ? `<span class="remaining-time overdue-highlight">${escapeHTML(timeInfo.text)}</span>`
         : `<span class="remaining-time">${escapeHTML(timeInfo.text)}</span>`;
 
-  // ジャンルタグの背景色を、DBに格納された色に置換
   const badgeColor = task.genre_color || "#94a3b8";
+
+  // 🔁 繰り返しバッジ表示の生成
+  const repeatBadge =
+    task.repeat_count && task.repeat_count > 1
+      ? `<span class="repeat-tag" style="display:inline-block; margin-left:0.4rem; padding:0.1rem 0.4rem; background:#e0f2fe; color:#0369a1; border-radius:12px; font-size:0.75rem; font-weight:bold; border:1px solid #bae6fd;">🔁 ${task.repeat_index}/${task.repeat_count}</span>`
+      : "";
 
   return `
         <tr class="task-row priority-${task.priority} ${completedRowClass} ${overdueRowClass}" data-task-id="${task.id}">
-            <td><strong>${escapeHTML(task.title)}</strong></td>
+            <td><strong>${escapeHTML(task.title)}</strong> ${repeatBadge}</td>
             <td>
                 ${escapeHTML(task.due_date)} 
                 <span style="color:#64748b; font-size:0.85rem;">${task.due_time ? escapeHTML(task.due_time) : ""}</span>
@@ -347,6 +352,7 @@ function createRowHTML(task) {
 
 function renderIncompleteTasks() {
   const list = document.getElementById("incomplete-tasks-list");
+  if (!list) return;
   list.innerHTML = "";
 
   let incompleteList = appState.tasks.filter((t) => t.is_completed === 0);
@@ -369,21 +375,6 @@ function renderIncompleteTasks() {
   incompleteList.forEach((task) => {
     list.insertAdjacentHTML("beforeend", createRowHTML(task));
   });
-}
-
-function getRepeatLabel(repeatType) {
-  switch (repeatType) {
-    case "daily":
-      return "🔁 毎日";
-    case "weekly":
-      return "🔁 毎週";
-    case "monthly":
-      return "🔁 毎月";
-    case "yearly":
-      return "🔁 毎年";
-    default:
-      return "";
-  }
 }
 
 /* ==========================================
@@ -501,15 +492,15 @@ function removeDynamicGenreView(containerId) {
    5. Canvas描画：統計区画
    ========================================== */
 
-// --- グラフ1：今後の負荷タイムライン（前日から1週間、6時間区切り） ---
 function drawTimelineChart() {
   const canvas = document.getElementById("timeline-chart");
   if (!canvas) return;
   const ctx = canvas.getContext("2d");
 
-  // 高解像度ディスプレイ（Retina）でぼやけるのを防ぐ
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.scale(dpr, dpr);
@@ -520,39 +511,35 @@ function drawTimelineChart() {
 
   const activeTasks = appState.tasks.filter((t) => t.is_completed === 0);
 
-  // 時間スケールの準備
   const now = Date.now();
-  const startMs = now - 24 * 60 * 60 * 1000; // 前日（24時間前）
-  const binSizeMs = 6 * 60 * 60 * 1000; // 6時間単位
-  const totalBins = 32; // 24h + (7 * 24h) = 192h / 6 = 32 区間
+  const startMs = now - 24 * 60 * 60 * 1000;
+  const binSizeMs = 6 * 60 * 60 * 1000;
+  const totalBins = 32;
 
-  // 32個の「ビン（時間区切り）」の箱を作る
   const bins = Array.from({ length: totalBins }, (_, i) => {
     const bStart = startMs + i * binSizeMs;
     const bEnd = bStart + binSizeMs;
     return {
       start: bStart,
       end: bEnd,
-      weights: {}, // ジャンルごとの重要度蓄積（genre_id: priority_sum）
+      weights: {},
       total: 0,
     };
   });
 
-  // 各未完了タスクを該当するビンへ分類
   activeTasks.forEach((task) => {
     const timePart = task.due_time || "23:59:59";
     const taskTime = new Date(`${task.due_date}T${timePart}`).getTime();
 
     const binIdx = Math.floor((taskTime - startMs) / binSizeMs);
     if (binIdx >= 0 && binIdx < totalBins) {
-      const gId = task.genre_id || 0; // 0 は未分類
+      const gId = task.genre_id || 0;
       bins[binIdx].weights[gId] =
         (bins[binIdx].weights[gId] || 0) + task.priority;
       bins[binIdx].total += task.priority;
     }
   });
 
-  // 描画マージン設定
   const padL = 35;
   const padR = 15;
   const padT = 20;
@@ -560,10 +547,8 @@ function drawTimelineChart() {
   const chartW = width - padL - padR;
   const chartH = height - padT - padB;
 
-  // Y軸の最大値判定（重要度の合計の最大。最低目盛り5を確保）
   let maxVal = Math.max(...bins.map((b) => b.total), 5);
 
-  // 1. グリッドとY軸目盛りの描画
   ctx.strokeStyle = "#e2e8f0";
   ctx.lineWidth = 1;
   ctx.fillStyle = "#64748b";
@@ -583,7 +568,6 @@ function drawTimelineChart() {
     ctx.stroke();
   }
 
-  // 2. 積み上げ棒グラフの描画
   const barWidth = Math.max(1, chartW / totalBins - 2);
 
   bins.forEach((bin, idx) => {
@@ -592,19 +576,17 @@ function drawTimelineChart() {
     const x = padL + idx * (chartW / totalBins) + 1;
     let currentY = padT + chartH;
 
-    // ジャンルごとに色分けして積み上げる
     Object.entries(bin.weights).forEach(([gId, weight]) => {
       const genre = appState.genres.find((g) => g.id === parseInt(gId));
-      const color = genre ? genre.color : "#cbd5e1"; // 未分類は灰色
+      const color = genre ? genre.color : "#cbd5e1";
       const barH = (weight / maxVal) * chartH;
 
       ctx.fillStyle = color;
       ctx.fillRect(x, currentY - barH, barWidth, barH);
-      currentY -= barH; // 上へと積み上げる
+      currentY -= barH;
     });
   });
 
-  // 3. X軸の目盛り（24時間＝4つのビンごとに日付を描画）
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
 
@@ -624,7 +606,6 @@ function drawTimelineChart() {
   }
 }
 
-// --- グラフ2：当日の残りタスクのジャンル割合円グラフ ---
 function drawPieChart() {
   const canvas = document.getElementById("today-pie-chart");
   if (!canvas) return;
@@ -632,6 +613,8 @@ function drawPieChart() {
 
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+
   canvas.width = rect.width * dpr;
   canvas.height = rect.height * dpr;
   ctx.scale(dpr, dpr);
@@ -640,10 +623,8 @@ function drawPieChart() {
   const height = rect.height;
   ctx.clearRect(0, 0, width, height);
 
-  // 今日のローカル日付（YYYY-MM-DD 形式）の取得
-  const todayStr = new Date().toLocaleDateString("sv-SE"); // "YYYY-MM-DD"
+  const todayStr = new Date().toLocaleDateString("sv-SE");
 
-  // 今日の未完了タスクだけにフィルタ
   const todayTasks = appState.tasks.filter(
     (t) => t.due_date === todayStr && t.is_completed === 0,
   );
@@ -658,7 +639,6 @@ function drawPieChart() {
     return;
   }
 
-  // ジャンルごとの件数集計
   const counts = {};
   todayTasks.forEach((task) => {
     const gId = task.genre_id || 0;
@@ -666,13 +646,13 @@ function drawPieChart() {
   });
 
   const total = todayTasks.length;
-  const centerX = width * 0.35; // 円グラフ本体は左寄り
+  const centerX = width * 0.35;
   const centerY = height / 2;
   const radius = Math.min(width * 0.22, height * 0.35);
 
-  let startAngle = -Math.PI / 2; // 時計の12時の位置から開始
+  let startAngle = -Math.PI / 2;
 
-  const legendX = width * 0.68; // 右側に凡例を描く
+  const legendX = width * 0.68;
   let legendY = 25;
 
   ctx.font = "10px sans-serif";
@@ -685,7 +665,6 @@ function drawPieChart() {
     const name = genre ? genre.name : "未分類";
     const sliceAngle = (count / total) * 2 * Math.PI;
 
-    // 1. パイの扇形を描画
     ctx.beginPath();
     ctx.moveTo(centerX, centerY);
     ctx.arc(centerX, centerY, radius, startAngle, startAngle + sliceAngle);
@@ -695,7 +674,6 @@ function drawPieChart() {
 
     startAngle += sliceAngle;
 
-    // 2. 凡例を描画（色四角 ＋ 件数）
     ctx.fillStyle = color;
     ctx.fillRect(legendX, legendY - 5, 10, 10);
 

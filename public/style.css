@@ -341,3 +341,63 @@ canvas {
   font-weight: bold;
   border: 1px solid #cbd5e1;
 }
+/* 🔁 繰り返し設定エリアのスタイリング */
+.repeat-config-box {
+  background-color: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.repeat-config-label {
+  font-weight: bold;
+  font-size: 0.85rem;
+  color: #334155;
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.repeat-inputs-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  align-items: center;
+}
+
+.repeat-input-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: #475569;
+}
+
+.repeat-input-unit input {
+  width: 65px;
+  text-align: right;
+  padding: 0.35rem 0.4rem;
+}
+
+.repeat-input-unit.highlight-unit {
+  font-weight: bold;
+  color: var(--primary-color);
+}
+
+.repeat-input-unit.highlight-unit input {
+  border-color: var(--primary-color);
+  background-color: #f0f9ff;
+}
+
+/* 繰り返しタグ */
+.repeat-tag {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  background-color: #e0f2fe;
+  color: #0369a1;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: bold;
+  border: 1px solid #bae6fd;
+}

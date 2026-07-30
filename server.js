@@ -28,33 +28,35 @@ if (isProduction) {
 }
 
 // ==========================================
-// 日付の繰り越し計算ヘルパー関数
+// 日時加算ヘルパー関数
 // ==========================================
-function calculateNextDueDate(currentDateStr, repeatType) {
-  const [year, month, day] = currentDateStr.split("-").map(Number);
-  const date = new Date(year, month - 1, day);
+function calculateOffsetDateTime(
+  baseDateStr,
+  baseTimeStr,
+  intervalMinutes,
+  stepIndex,
+) {
+  const timeStr = baseTimeStr || "00:00";
+  const [year, month, day] = baseDateStr.split("-").map(Number);
+  const [hours, minutes] = timeStr.split(":").map(Number);
 
-  switch (repeatType) {
-    case "daily":
-      date.setDate(date.getDate() + 1);
-      break;
-    case "weekly":
-      date.setDate(date.getDate() + 7);
-      break;
-    case "monthly":
-      date.setMonth(date.getMonth() + 1);
-      break;
-    case "yearly":
-      date.setFullYear(date.getFullYear() + 1);
-      break;
-    default:
-      return null;
+  // JavaScriptのDateオブジェクトで加算処理
+  const dt = new Date(year, month - 1, day, hours, minutes);
+  dt.setMinutes(dt.getMinutes() + intervalMinutes * stepIndex);
+
+  const yyyy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  const due_date = `${yyyy}-${mm}-${dd}`;
+
+  let due_time = null;
+  if (baseTimeStr) {
+    const hh = String(dt.getHours()).padStart(2, "0");
+    const min = String(dt.getMinutes()).padStart(2, "0");
+    due_time = `${hh}:${min}`;
   }
 
-  const yyyy = date.getFullYear();
-  const mm = String(date.getMonth() + 1).padStart(2, "0");
-  const dd = String(date.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+  return { due_date, due_time };
 }
 
 // ==========================================
@@ -87,16 +89,25 @@ if (isProduction) {
               priority INTEGER NOT NULL,
               comment TEXT,
               is_completed INTEGER DEFAULT 0,
-              repeat_type VARCHAR(10) DEFAULT 'none',
+              repeat_count INTEGER DEFAULT 1,
+              repeat_index INTEGER DEFAULT 1,
+              repeat_interval_min INTEGER DEFAULT 0,
               CONSTRAINT fk_genre FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
           );
       `);
     })
     .then(() => {
-      // PostgreSQL: repeat_type カラムの自動追加マイグレーション
-      return pgPool.query(
-        `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_type VARCHAR(10) DEFAULT 'none';`,
-      );
+      return Promise.all([
+        pgPool.query(
+          `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_count INTEGER DEFAULT 1;`,
+        ),
+        pgPool.query(
+          `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_index INTEGER DEFAULT 1;`,
+        ),
+        pgPool.query(
+          `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS repeat_interval_min INTEGER DEFAULT 0;`,
+        ),
+      ]);
     })
     .then(async () => {
       const res = await pgPool.query("SELECT COUNT(*) FROM genres");
@@ -136,14 +147,23 @@ if (isProduction) {
           priority INTEGER NOT NULL,
           comment TEXT,
           is_completed INTEGER DEFAULT 0,
-          repeat_type TEXT DEFAULT 'none',
+          repeat_count INTEGER DEFAULT 1,
+          repeat_index INTEGER DEFAULT 1,
+          repeat_interval_min INTEGER DEFAULT 0,
           FOREIGN KEY(genre_id) REFERENCES genres(id) ON DELETE SET NULL
       )
     `);
 
-    // SQLite: repeat_type カラムの自動追加マイグレーション
     sqliteDb.run(
-      "ALTER TABLE tasks ADD COLUMN repeat_type TEXT DEFAULT 'none'",
+      "ALTER TABLE tasks ADD COLUMN repeat_count INTEGER DEFAULT 1",
+      () => {},
+    );
+    sqliteDb.run(
+      "ALTER TABLE tasks ADD COLUMN repeat_index INTEGER DEFAULT 1",
+      () => {},
+    );
+    sqliteDb.run(
+      "ALTER TABLE tasks ADD COLUMN repeat_interval_min INTEGER DEFAULT 0",
       () => {},
     );
 
@@ -200,11 +220,9 @@ app.post("/api/genres", async (req, res) => {
       );
       res.json({ id: result.rows[0].id, name, color: genreColor });
     } catch (err) {
-      res
-        .status(500)
-        .json({
-          error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-        });
+      res.status(500).json({
+        error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+      });
     }
   } else {
     sqliteDb.run(
@@ -212,11 +230,9 @@ app.post("/api/genres", async (req, res) => {
       [name, genreColor],
       function (err) {
         if (err)
-          return res
-            .status(500)
-            .json({
-              error: "追加に失敗しました。同名ジャンルがある可能性があります。",
-            });
+          return res.status(500).json({
+            error: "追加に失敗しました。同名ジャンルがある可能性があります。",
+          });
         res.json({ id: this.lastID, name, color: genreColor });
       },
     );
@@ -247,6 +263,7 @@ app.get("/api/tasks", async (req, res) => {
         SELECT tasks.*, genres.name AS genre_name, genres.color AS genre_color
         FROM tasks 
         LEFT JOIN genres ON tasks.genre_id = genres.id
+        ORDER BY tasks.id ASC
     `;
   if (isProduction) {
     try {
@@ -263,7 +280,7 @@ app.get("/api/tasks", async (req, res) => {
   }
 });
 
-// タスク新規登録（repeat_type 対応）
+// 🔁 タスク新規登録（一括繰返し登録対応・非同期処理安全版）
 app.post("/api/tasks", async (req, res) => {
   const {
     title,
@@ -272,150 +289,116 @@ app.post("/api/tasks", async (req, res) => {
     genre_id,
     priority,
     comment,
-    repeat_type,
+    repeat_days,
+    repeat_hours,
+    repeat_minutes,
+    repeat_times,
   } = req.body;
+
   if (!title || !due_date || !priority) {
     return res.status(400).json({ error: "必須項目が不足しています。" });
   }
 
-  const repeatVal = repeat_type || "none";
+  const rDays = parseInt(repeat_days) || 0;
+  const rHours = parseInt(repeat_hours) || 0;
+  const rMins = parseInt(repeat_minutes) || 0;
+  const intervalMins = rDays * 1440 + rHours * 60 + rMins;
+
+  const totalCount = Math.max(1, parseInt(repeat_times) || 1);
 
   if (isProduction) {
-    const query = `
-      INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
-      VALUES ($1, $2, $3, $4, $5, $6, 0, $7) RETURNING id
-    `;
-    const params = [
-      title,
-      due_date,
-      due_time || null,
-      genre_id ? parseInt(genre_id) : null,
-      parseInt(priority),
-      comment || null,
-      repeatVal,
-    ];
     try {
-      const result = await pgPool.query(query, params);
-      res.json({ id: result.rows[0].id, message: "タスクを登録しました" });
+      const insertedIds = [];
+      for (let i = 0; i < totalCount; i++) {
+        const { due_date: calcDate, due_time: calcTime } =
+          calculateOffsetDateTime(due_date, due_time, intervalMins, i);
+
+        const query = `
+          INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_count, repeat_index, repeat_interval_min)
+          VALUES ($1, $2, $3, $4, $5, $6, 0, $7, $8, $9) RETURNING id
+        `;
+        const params = [
+          title,
+          calcDate,
+          calcTime,
+          genre_id ? parseInt(genre_id) : null,
+          parseInt(priority),
+          comment || null,
+          totalCount,
+          i + 1,
+          intervalMins,
+        ];
+        const result = await pgPool.query(query, params);
+        insertedIds.push(result.rows[0].id);
+      }
+      res.json({
+        message: `${totalCount}件のタスクを登録しました`,
+        ids: insertedIds,
+      });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   } else {
-    const query = `
-      INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?)
-    `;
-    const params = [
-      title,
-      due_date,
-      due_time || null,
-      genre_id || null,
-      parseInt(priority),
-      comment || null,
-      repeatVal,
-    ];
-    sqliteDb.run(query, params, function (err) {
-      if (err) return res.status(500).json({ error: err.message });
-      res.json({ id: this.lastID, message: "タスクを登録しました" });
-    });
+    // SQLite環境：Promiseで1件ずつの登録完了を確実に待機する
+    try {
+      for (let i = 0; i < totalCount; i++) {
+        const { due_date: calcDate, due_time: calcTime } =
+          calculateOffsetDateTime(due_date, due_time, intervalMins, i);
+
+        await new Promise((resolve, reject) => {
+          sqliteDb.run(
+            `INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_count, repeat_index, repeat_interval_min)
+             VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+            [
+              title,
+              calcDate,
+              calcTime,
+              genre_id ? parseInt(genre_id) : null,
+              parseInt(priority),
+              comment || null,
+              totalCount,
+              i + 1,
+              intervalMins,
+            ],
+            function (err) {
+              if (err) reject(err);
+              else resolve(this.lastID);
+            },
+          );
+        });
+      }
+      res.json({ message: `${totalCount}件のタスクを登録しました` });
+    } catch (err) {
+      console.error("SQLite挿入エラー:", err);
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 
-// タスク更新 (完了状態トグル ＆ 繰り返し自動生成)
+// タスク更新 (単純な完了トグル)
 app.put("/api/tasks/:id", async (req, res) => {
   const { id } = req.params;
   const { is_completed } = req.body;
 
   if (isProduction) {
     try {
-      // 1. 対象の現在タスク情報を取得
-      const currentTaskRes = await pgPool.query(
-        "SELECT * FROM tasks WHERE id = $1",
-        [id],
-      );
-      const task = currentTaskRes.rows[0];
-
-      if (task) {
-        // ステータスを更新
-        await pgPool.query("UPDATE tasks SET is_completed = $1 WHERE id = $2", [
-          is_completed,
-          id,
-        ]);
-
-        // 未完了 -> 完了 に変更され、かつ繰り返し設定がある場合
-        if (
-          parseInt(is_completed) === 1 &&
-          task.repeat_type &&
-          task.repeat_type !== "none"
-        ) {
-          const nextDate = calculateNextDueDate(
-            task.due_date,
-            task.repeat_type,
-          );
-          if (nextDate) {
-            await pgPool.query(
-              `INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
-               VALUES ($1, $2, $3, $4, $5, $6, 0, $7)`,
-              [
-                task.title,
-                nextDate,
-                task.due_time,
-                task.genre_id,
-                task.priority,
-                task.comment,
-                task.repeat_type,
-              ],
-            );
-          }
-        }
-      }
+      await pgPool.query("UPDATE tasks SET is_completed = $1 WHERE id = $2", [
+        is_completed,
+        id,
+      ]);
       res.json({ message: "タスクの状態を更新しました" });
     } catch (err) {
       res.status(500).json({ error: err.message });
     }
   } else {
-    sqliteDb.get("SELECT * FROM tasks WHERE id = ?", [id], (err, task) => {
-      if (err || !task)
-        return res
-          .status(500)
-          .json({ error: err ? err.message : "タスクが見つかりません" });
-
-      sqliteDb.run(
-        "UPDATE tasks SET is_completed = ? WHERE id = ?",
-        [is_completed, id],
-        function (err) {
-          if (err) return res.status(500).json({ error: err.message });
-
-          // 未完了 -> 完了 に変更され、かつ繰り返し設定がある場合
-          if (
-            parseInt(is_completed) === 1 &&
-            task.repeat_type &&
-            task.repeat_type !== "none"
-          ) {
-            const nextDate = calculateNextDueDate(
-              task.due_date,
-              task.repeat_type,
-            );
-            if (nextDate) {
-              sqliteDb.run(
-                `INSERT INTO tasks (title, due_date, due_time, genre_id, priority, comment, is_completed, repeat_type)
-               VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-                [
-                  task.title,
-                  nextDate,
-                  task.due_time,
-                  task.genre_id,
-                  task.priority,
-                  task.comment,
-                  task.repeat_type,
-                ],
-              );
-            }
-          }
-          res.json({ message: "タスクの状態を更新しました" });
-        },
-      );
-    });
+    sqliteDb.run(
+      "UPDATE tasks SET is_completed = ? WHERE id = ?",
+      [is_completed, id],
+      function (err) {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json({ message: "タスクの状態を更新しました" });
+      },
+    );
   }
 });
 

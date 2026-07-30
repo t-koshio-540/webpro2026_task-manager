@@ -113,16 +113,60 @@
                 </select>
               </div>
             </div>
-            <!-- 🔁 追加: 繰り返し設定 -->
-            <div class="form-group">
-              <label for="task-repeat">繰り返し</label>
-              <select id="task-repeat">
-                <option value="none">なし</option>
-                <option value="daily">毎日</option>
-                <option value="weekly">毎週</option>
-                <option value="monthly">毎月</option>
-                <option value="yearly">毎年</option>
-              </select>
+            <!-- 🔁 繰り返し詳細指定フィールドグループ -->
+            <div class="repeat-config-box">
+              <label class="repeat-config-label">🔁 繰り返し設定</label>
+              <div class="repeat-inputs-grid">
+                <div class="repeat-input-unit">
+                  <input
+                    type="number"
+                    id="repeat-days"
+                    min="0"
+                    value="0"
+                    placeholder="0"
+                  />
+                  <span>日間</span>
+                </div>
+                <div class="repeat-input-unit">
+                  <input
+                    type="number"
+                    id="repeat-hours"
+                    min="0"
+                    max="23"
+                    value="0"
+                    placeholder="0"
+                  />
+                  <span>時間</span>
+                </div>
+                <div class="repeat-input-unit">
+                  <input
+                    type="number"
+                    id="repeat-minutes"
+                    min="0"
+                    max="59"
+                    value="0"
+                    placeholder="0"
+                  />
+                  <span>分間隔で</span>
+                </div>
+                <div class="repeat-input-unit highlight-unit">
+                  <input
+                    type="number"
+                    id="repeat-times"
+                    min="1"
+                    value="1"
+                    placeholder="1"
+                    required
+                  />
+                  <span>回繰り返し</span>
+                </div>
+              </div>
+              <p
+                class="instruction"
+                style="margin-top: 0.4rem; margin-bottom: 0"
+              >
+                ※ 1回繰り返しにすると「繰り返しなし」として登録されます。
+              </p>
             </div>
             <div class="form-group">
               <label for="task-comment">コメント(任意)</label>
