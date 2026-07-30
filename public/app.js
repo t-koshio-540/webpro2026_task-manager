@@ -405,9 +405,8 @@ function setupTableSort(tableId, stateKey, renderFn) {
 // 共通TR行のHTML生成
 function createRowHTML(task) {
   const priorityText =
-    ["低 (1)", "やや低 (2)", "中 (3)", "高 (4)", "緊急 (5)"][
-      task.priority - 1
-    ] || task.priority;
+    ["メモ (1)", "低 (2)", "中 (3)", "高 (4)", "緊急 (5)"][task.priority - 1] ||
+    task.priority;
   const isChecked = task.is_completed === 1 ? "checked" : "";
 
   // 残り時間・超過情報の取得
