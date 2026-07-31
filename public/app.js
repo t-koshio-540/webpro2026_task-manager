@@ -456,9 +456,9 @@ function createRowHTML(task) {
             </td>
             <td>${priorityText}</td>
             <td><small>${escapeHTML(displayComment || "")}</small></td>
-            <td>
-                <input type="checkbox" ${isChecked} onchange="toggleTaskStatus(${task.id}, ${task.is_completed})">
-                <button class="btn btn-danger" onclick="deleteTask(${task.id})">削除</button>
+            <td id="controls">
+                完了にする：<input class="form-check-input" type="checkbox" ${isChecked} onchange="toggleTaskStatus(${task.id}, ${task.is_completed})">
+                <button class="btn btn-danger" onclick="deleteTask(${task.id})">このタスクを削除</button>
             </td>
         </tr>
     `;

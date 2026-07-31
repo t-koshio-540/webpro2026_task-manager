@@ -26,6 +26,7 @@ header {
   padding: 1.5rem;
   text-align: center;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  cursor: not-allowed;
 }
 
 h2 {
@@ -400,4 +401,27 @@ canvas {
   font-size: 0.75rem;
   font-weight: bold;
   border: 1px solid #bae6fd;
+}
+
+.btn.btn-danger {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  align-items: right;
+  cursor: progress;
+}
+
+.form-check-input {
+  width: 18px;
+  height: 18px;
+  justify-content: center;
+  align-items: bottom;
+}
+
+.form-submit-button {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+  align-items: center;
+  cursor: progress;
 }

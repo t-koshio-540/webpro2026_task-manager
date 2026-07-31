@@ -25,6 +25,7 @@
           gap: 10px;
           margin-bottom: 20px;
           border-radius: 8px;
+          cursor: progress;
         "
       >
         <label
@@ -208,7 +209,7 @@
               <label for="task-comment">コメント(任意)</label>
               <textarea
                 id="task-comment"
-                rows="2"
+                rows="4"
                 placeholder="詳細メモなど"
               ></textarea>
             </div>
@@ -223,9 +224,11 @@
                 required
               />
             </div>
-            <button type="submit" class="btn btn-primary">
-              このタスクを登録する
-            </button>
+            <div class="form-submit-button">
+              <button type="submit" class="btn btn-primary">
+                このタスクを登録する
+              </button>
+            </div>
           </form>
         </section>
 
